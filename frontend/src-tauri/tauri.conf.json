@@ -90,19 +90,18 @@
     "bundle": {
         "active": true,
         "targets": [
-            "nsis"
+            "app",
+            "dmg"
         ],
         "createUpdaterArtifacts": false,
         "icon": [
             "icons/icon.png",
-            "icons/icon.icns",
-            "icons/icon.ico"
+            "icons/icon.icns"
         ],
         "resources": [
             "templates/*.json",
             "resources/diarization/*",
-            "runtime-deps/*",
-            "installer-variants/*"
+            "runtime-deps/*"
         ],
         "externalBin": [
             "binaries/llama-helper",
@@ -112,24 +111,6 @@
             "entitlements": "entitlements.plist",
             "signingIdentity": "-",
             "hardenedRuntime": true
-        },
-        "windows": {
-            "signCommand": "powershell -ExecutionPolicy Bypass -File scripts/sign-windows.ps1 -FilePath %1",
-            "webviewInstallMode": {
-                "type": "embedBootstrapper",
-                "silent": true
-            },
-            "nsis": {
-                "installMode": "currentUser",
-                "displayLanguageSelector": false,
-                "template": "./windows/installer.nsi",
-                "installerHooks": "./windows/installer-hooks.nsh",
-                "installerIcon": "./icons/icon.ico",
-                "languages": ["English"],
-                "customLanguageFiles": {
-                    "English": "./windows/English.nsh"
-                }
-            }
         }
     },
     "plugins": {
