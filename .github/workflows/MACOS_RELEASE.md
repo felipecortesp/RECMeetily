@@ -1,6 +1,6 @@
-# macOS Apple Silicon Release Runbook
+# RECMeetily macOS Apple Silicon Release Runbook
 
-This runbook is the operational source of truth for the separate macOS release.
+This runbook is the operational source of truth for the RECMeetily macOS release.
 Read `ARCHITECTURE.md` section 9 first for the design constraints behind these
 steps.
 
@@ -11,8 +11,8 @@ steps.
 | Supported hardware | Apple Silicon (`aarch64-apple-darwin`) |
 | Minimum OS | macOS 14.2 Sonoma |
 | Public tag | `vX.Y.Z-macos` |
-| GitHub Latest | No; Windows `vX.Y.Z` stays Latest |
-| Updater manifest | None; macOS must not modify Windows `latest.json` |
+| GitHub Latest | No |
+| Updater manifest | None; RECMeetily has no auto-updater |
 | Default signing | Ad-hoc `codesign`, not notarized |
 | Candidate workflow | `build-macos.yml` |
 | Publication workflow | `publish-macos.yml` |
@@ -20,9 +20,8 @@ steps.
 | Protected environment | `macos-release`, restricted to `main` |
 | Release mutability | Repository immutable releases enabled |
 
-The macOS release is intentionally independent from the Windows setup/updater
-pair. Never upload the DMG to the Windows release through a generic workflow,
-mark the macOS-only release Latest, or point `latest.json` at a DMG.
+RECMeetily releases are macOS-only with no auto-updater. Users download updates
+manually from GitHub.
 
 ## Source Invariants
 
@@ -51,27 +50,27 @@ Also preserve these invariants:
 Run the checks available on the development machine before consuming a macOS
 runner:
 
-```powershell
-Set-Location frontend
+```bash
+cd frontend
 pnpm run build
-.\build-cuda-env.bat check
-.\build-cuda-env.bat test concat_paths_escape_apostrophes
-.\build-cuda-env.bat test meeting_
-.\build-cuda-env.bat test accumulation_fails_before_accepting_chunks
+cargo build --package llama-helper --target aarch64-apple-darwin --features metal
+cargo test --package llama-helper concat_paths_escape_apostrophes
+cargo test --package llama-helper meeting_
+cargo test --package llama-helper accumulation_fails_before_accepting_chunks
 ```
 
 Then validate workflow syntax from the repository root:
 
-```powershell
-npx --yes yaml-lint `
-  ".github/workflows/build-macos.yml" `
-  ".github/workflows/publish-macos.yml" `
+```bash
+npx --yes yaml-lint \
+  ".github/workflows/build-macos.yml" \
+  ".github/workflows/publish-macos.yml" \
   ".github/workflows/smoke-test-macos-release.yml"
 git diff --check
 ```
 
-Windows checks do not compile the `#[cfg(target_os = "macos")]` capture code.
-The candidate workflow is the required native compile and package gate.
+The candidate workflow is the required native compile, package, and Apple Silicon
+verification gate.
 
 ## Candidate Build
 
@@ -150,7 +149,7 @@ function Resolve-DispatchedRun {
 Dispatch the candidate and watch the exact resolved run:
 
 ```powershell
-$repo = "TylerBuza/Meetily-ActuallyFree"
+$repo = "felipecortesp/RECMeetily"
 $head = gh api "repos/$repo/git/ref/heads/main" --jq .object.sha
 if ($LASTEXITCODE -ne 0) { throw "Failed to resolve current main" }
 $dispatchStarted = [DateTimeOffset]::UtcNow
@@ -290,8 +289,6 @@ publisher run. Treat the release as unsafe: verify its tag target and
 `macos-release-metadata.json` publish run ID match the failed run, delete that
 release without deleting its reserved tag, and increment the version. Do not
 leave a partially verified release public or reuse its tag.
-The locked `v0.2.5-macos` release predates provenance metadata and the physical
-gate. It is a preview, not a template for future publication or smoke checks.
 
 After successful promotion, confirm that:
 
@@ -383,7 +380,7 @@ the publisher:
 13. After use, verify the installed bundle again:
 
 ```bash
-codesign --verify --deep --strict "/Applications/Meetily - Actually Free.app"
+codesign --verify --deep --strict "/Applications/RECMeetily.app"
 ```
 
 ## Failure Triage
@@ -402,7 +399,5 @@ codesign --verify --deep --strict "/Applications/Meetily - Actually Free.app"
   `recording_preferences.rs`.
 - **FFmpeg merge fails for a title or path:** Inspect concat escaping in
   `incremental_saver.rs` and meeting-title sanitization.
-- **About or tray tries to update on macOS:** Inspect `UpdateCheckProvider`,
-  `About`, `tray.rs`, and the onboarding update preference.
 - **Public smoke differs from the candidate:** Inspect the release target,
   uploaded assets, checksum, and exact public tag.

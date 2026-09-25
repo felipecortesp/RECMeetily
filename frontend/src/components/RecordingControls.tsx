@@ -30,7 +30,6 @@ import { ProcessRequest, SummaryResponse } from '@/types/summary';
 import { listen } from '@tauri-apps/api/event';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import Analytics from '@/lib/analytics';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
 import { usePermissionCheck } from '@/hooks/usePermissionCheck';
 
@@ -236,8 +235,6 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
       setRecordingPath(savePath);
       // setShowPlayback(true);
       setIsProcessing(false);
-      // Track successful transcription
-      Analytics.trackTranscriptionSuccess();
       // Native stop emits one main-window-only completion event. The global
       // post-processing provider handles transcript drain/save/navigation for
       // every stop origin, so do not start a second frontend owner here.
@@ -326,10 +323,6 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
     setIsChangingMicrophoneMute(true);
     try {
       await invoke<boolean>('set_microphone_muted', { muted: !isMicrophoneMuted });
-      Analytics.trackButtonClick(
-        isMicrophoneMuted ? 'unmute_microphone' : 'mute_microphone',
-        'recording_controls'
-      );
     } catch (error) {
       console.error('Failed to change microphone mute state:', error);
     } finally {
@@ -343,10 +336,6 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
     setIsChangingSystemAudioMute(true);
     try {
       await invoke<boolean>('set_system_audio_muted', { muted: !isSystemAudioMuted });
-      Analytics.trackButtonClick(
-        isSystemAudioMuted ? 'unmute_system_audio' : 'mute_system_audio',
-        'recording_controls'
-      );
     } catch (error) {
       console.error('Failed to change system audio mute state:', error);
     } finally {
@@ -359,7 +348,6 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   // current duration seeds the bar so its timer continues rather than resets.
   const collapseToBar = useCallback(() => {
     const elapsed = Math.max(0, Math.floor(recordingState.recordingDuration ?? 0));
-    Analytics.trackButtonClick('enter_compact_mode', 'recording_controls');
     invoke('enter_compact_mode', { elapsedSeconds: elapsed }).catch((e) =>
       console.error('Failed to enter compact mode:', e)
     );
@@ -382,9 +370,6 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
           console.log('transcript-error event received:', event);
           console.error('Transcription error received:', event.payload);
           const errorMessage = event.payload as string;
-
-          Analytics.trackTranscriptionError(errorMessage);
-          console.log('Tracked transcription error:', errorMessage);
 
           setTranscriptionErrors(prev => {
             const newCount = prev + 1;
@@ -414,9 +399,6 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
           } else {
             errorMessage = String(event.payload);
           }
-
-          Analytics.trackTranscriptionError(errorMessage);
-          console.log('Tracked transcription error:', errorMessage);
 
           setTranscriptionErrors(prev => {
             const newCount = prev + 1;
@@ -525,7 +507,6 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                           <TooltipTrigger asChild>
                             <button
                               onClick={() => {
-                                Analytics.trackButtonClick('start_recording', 'recording_controls');
                                 handleStartRecording();
                               }}
                               disabled={isStarting || isProcessing || isRecordingDisabled || isValidatingModel}
@@ -553,7 +534,6 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                         <button
                           onClick={() => {
                             if (isStarting || isProcessing || isRecordingDisabled || isValidatingModel) return;
-                            Analytics.trackButtonClick('start_recording', 'recording_controls');
                             handleStartRecording();
                           }}
                           className="text-left leading-tight"
@@ -654,10 +634,8 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                         <button
                           onClick={() => {
                             if (isPaused) {
-                              Analytics.trackButtonClick('resume_recording', 'recording_controls');
                               handleResumeRecording();
                             } else {
-                              Analytics.trackButtonClick('pause_recording', 'recording_controls');
                               handlePauseRecording();
                             }
                           }}
@@ -671,7 +649,6 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
 
                         <button
                           onClick={() => {
-                            Analytics.trackButtonClick('stop_recording', 'recording_controls');
                             handleStopRecording();
                           }}
                           disabled={isStopping || isPausing || isResuming || isChangingMicrophoneMute || isChangingSystemAudioMute}

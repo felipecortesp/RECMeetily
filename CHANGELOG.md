@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.3.0 - 2026-09-25
+
+### RECMeetily: macOS-only, privacy-hardened fork
+
+**Removed:**
+- Windows, Linux, and CUDA/Vulkan build pipelines and CI workflows.
+- NSIS installer and bootstrap framework.
+- PostHog analytics module (was disabled, now deleted).
+- Auto-updater and all update-check infrastructure.
+- Python FastAPI backend and APP_SERVER_URL configuration.
+- Windows/Linux feature documentation.
+
+**Changed:**
+- App identifier: `com.meetily.ai` → `dev.felipecortes.recmeetily`.
+- Data directory: `~/Library/Application Support/Meetily` → `~/Library/Application Support/RECMeetily`.
+- Recordings default folder: `~/Movies/meetily-recordings` → `~/Movies/recmeetily-recordings`.
+- Content-Security-Policy `connect-src`: removed analytics endpoints; now only `'self'` and `http://localhost:11434` (Ollama).
+- ffmpeg: only bundled sidecar; never consulted from PATH.
+
+**Added:**
+- SHA-256 verification for every model and binary download (Parakeet, Whisper, summary GGUF, diarization, ffmpeg at build time).
+- Parakeet TDT 0.6B v3 (NVIDIA, ONNX) from Hugging Face (istupakov conversion).
+- Diarization model sources: pinned URLs with SHA-256 verification (segmentation-3.0-fp16.onnx, wespeaker-resnet34-LM.onnx, xvec_transform.npz).
+- Dependency audit (cargo-audit, cargo-deny, pnpm audit) with deny.toml.
+- Logs explicitly never contain spoken text or summaries.
+- On first launch, migration copies existing models and recordings from `~/Library/Application Support/Meetily` (if present), leaving the original untouched.
+
 ## 0.2.16 - 2026-09-18
 
 ### Selective Upstream Integration
