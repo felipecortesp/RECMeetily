@@ -5,12 +5,15 @@ three ONNX/NumPy assets on first use. This note records where they come from and
 why, so the pinned hashes in `diarization/download.rs` can be audited later
 without redoing the research.
 
-## Current source: Tyler's GitHub release
+## Current source: RECMeetily GitHub release
 
-All three files are downloaded from this fork's own GitHub release
-`diarization-models-v1` (`TylerBuza/Meetily-ActuallyFree`), each verified
-against a pinned exact size and SHA-256 in `diarization/download.rs::ASSETS`
-before it's trusted:
+All three files are downloaded from the RECMeetily GitHub release
+`diarization-models-v1`
+(<https://github.com/felipecortesp/RECMeetily/releases/download/diarization-models-v1>),
+each verified against a pinned exact size and SHA-256 in
+`diarization/download.rs::ASSETS` before it's trusted. This release is
+byte-identical to the original `diarization-models-v1` release published by
+the Meetily - Actually Free project — same files, same pinned hashes:
 
 | File | Size | SHA-256 |
 |---|---|---|
@@ -49,7 +52,7 @@ authentication. Any switch would need either a token-gated download flow (which
 conflicts with this fork's no-account-required goal) or would have to keep
 re-hosting this one file regardless of what happens to the other two.
 
-## Validation result (2026-09-25): not a drop-in — kept Tyler's release
+## Validation result (2026-09-25): not a drop-in — kept the RECMeetily release
 
 The two public candidates above were downloaded, hash-verified against the
 table, and inspected with `onnx` (Python) to compare their graph I/O against
@@ -71,15 +74,15 @@ contract has a direct public replacement, not to fork the loader per source).
 This was confirmed empirically, not just by reading the graph: running the
 existing `diarization::tests::diarize_sample` test (see `diarization/mod.rs`)
 against a model directory built from the public segmentation + public
-embedding models (keeping Tyler's `xvec_transform.npz`, since the pyannote
-x-vector transform is gated — see above) fails immediately:
+embedding models (keeping the current `xvec_transform.npz`, since the
+pyannote x-vector transform is gated — see above) fails immediately:
 
 ```
 thread 'diarization::tests::diarize_sample' panicked at frontend/src-tauri/src/diarization/mod.rs:1333:10:
 diarization failed: Invalid input name: waveform
 ```
 
-For reference, the same test against the current (Tyler) three-file set on a
+For reference, the same test against the current three-file set on a
 ~107s PT/FR/EN 3-speaker sample (`pt-fr-en.wav`, `num_speakers=3`) runs in
 ~2.9s wall time and finds 3 speakers / 13 segments — this is the working
 baseline the public files were being checked against.

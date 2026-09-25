@@ -7,7 +7,7 @@ import { User } from 'lucide-react';
 
 /**
  * Capture the user's display name once. Live + post-call transcripts label
- * the local mic as "You" and the UI shows e.g. "Tyler (You)".
+ * the local mic as "You" and the UI shows e.g. "Ana (You)".
  */
 export function YourNameStep() {
   const { goNext, goPrevious } = useOnboarding();
