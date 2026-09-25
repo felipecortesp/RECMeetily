@@ -1,7 +1,5 @@
-#[cfg(target_os = "macos")]
 use std::time::{Duration, Instant};
 
-#[cfg(target_os = "macos")]
 use cidre::{core_audio as ca, os};
 
 /// Event types for system audio detection
@@ -71,12 +69,10 @@ impl Drop for BackgroundTask {
 }
 
 /// Detects system audio usage on macOS
-#[cfg(target_os = "macos")]
 pub struct MacOSSystemAudioDetector {
     background: BackgroundTask,
 }
 
-#[cfg(target_os = "macos")]
 impl Default for MacOSSystemAudioDetector {
     fn default() -> Self {
         Self {
@@ -85,21 +81,18 @@ impl Default for MacOSSystemAudioDetector {
     }
 }
 
-#[cfg(target_os = "macos")]
 const DEVICE_IS_RUNNING_SOMEWHERE: ca::PropAddr = ca::PropAddr {
     selector: ca::PropSelector::DEVICE_IS_RUNNING_SOMEWHERE,
     scope: ca::PropScope::GLOBAL,
     element: ca::PropElement::MAIN,
 };
 
-#[cfg(target_os = "macos")]
 struct DetectorState {
     last_state: bool,
     last_change: Instant,
     debounce_duration: Duration,
 }
 
-#[cfg(target_os = "macos")]
 impl DetectorState {
     fn new() -> Self {
         Self {
@@ -125,7 +118,6 @@ impl DetectorState {
     }
 }
 
-#[cfg(target_os = "macos")]
 impl MacOSSystemAudioDetector {
     pub fn start(&mut self, callback: SystemAudioCallback) {
         self.background.start(|running, mut stop_rx| {
@@ -354,7 +346,6 @@ impl MacOSSystemAudioDetector {
     }
 }
 
-#[cfg(target_os = "macos")]
 fn list_system_audio_using_apps() -> Vec<String> {
     match ca::System::processes() {
         Ok(processes) => {
@@ -376,26 +367,6 @@ fn list_system_audio_using_apps() -> Vec<String> {
         }
         Err(_) => Vec::new(),
     }
-}
-
-// Stub implementation for non-macOS platforms
-#[cfg(not(target_os = "macos"))]
-pub struct MacOSSystemAudioDetector;
-
-#[cfg(not(target_os = "macos"))]
-impl Default for MacOSSystemAudioDetector {
-    fn default() -> Self {
-        Self
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-impl MacOSSystemAudioDetector {
-    pub fn start(&mut self, _callback: SystemAudioCallback) {
-        tracing::warn!("System audio detection is only supported on macOS");
-    }
-
-    pub fn stop(&mut self) {}
 }
 
 /// Public interface for system audio detection

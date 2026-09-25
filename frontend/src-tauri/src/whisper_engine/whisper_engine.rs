@@ -152,17 +152,8 @@ impl WhisperEngine {
         #[cfg(feature = "metal")]
         log::info!("Apple Metal GPU support: enabled");
 
-        #[cfg(feature = "openblas")]
-        log::info!("OpenBLAS CPU optimization: enabled");
-
         #[cfg(feature = "coreml")]
         log::info!("Apple CoreML support: enabled");
-
-        #[cfg(feature = "cuda")]
-        log::info!("NVIDIA CUDA support: enabled");
-
-        #[cfg(feature = "vulkan")]
-        log::info!("Vulkan GPU support: enabled");
 
         #[cfg(feature = "openmp")]
         log::info!("OpenMP parallel processing: enabled");

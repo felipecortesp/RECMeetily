@@ -5,11 +5,7 @@ use log::{debug, error, info, warn};
 
 use super::devices::{AudioDevice, list_audio_devices};
 
-#[cfg(target_os = "macos")]
 use super::devices::get_safe_recording_devices_macos;
-
-#[cfg(not(target_os = "macos"))]
-use super::devices::{default_input_device, default_output_device};
 use super::recording_state::{RecordingState, AudioChunk, DeviceType as RecordingDeviceType};
 use super::pipeline::AudioPipelineManager;
 use super::stream::AudioStreamManager;
@@ -168,61 +164,23 @@ impl RecordingManager {
     /// User still hears audio via Bluetooth (playback), but recording captures
     /// via stable wired path for best quality.
     pub async fn start_recording_with_defaults_and_auto_save(&mut self, auto_save: bool) -> Result<mpsc::UnboundedReceiver<AudioChunk>> {
-        #[cfg(target_os = "macos")]
-        {
-            info!("🎙️ [macOS] Starting recording with smart device selection (Bluetooth override enabled)");
+        info!("🎙️ [macOS] Starting recording with smart device selection (Bluetooth override enabled)");
 
-            // Get safe recording devices with automatic Bluetooth fallback
-            // This function handles all the detection and override logic for macOS
-            let (microphone_device, system_device) = get_safe_recording_devices_macos()?;
+        // Get safe recording devices with automatic Bluetooth fallback
+        // This function handles all the detection and override logic for macOS
+        let (microphone_device, system_device) = get_safe_recording_devices_macos()?;
 
-            // Wrap in Arc for sharing across threads
-            let microphone_device = microphone_device.map(Arc::new);
-            let system_device = system_device.map(Arc::new);
+        // Wrap in Arc for sharing across threads
+        let microphone_device = microphone_device.map(Arc::new);
+        let system_device = system_device.map(Arc::new);
 
-            // Ensure at least microphone is available
-            if microphone_device.is_none() {
-                return Err(anyhow::anyhow!("❌ No microphone device available for recording"));
-            }
-
-            // Start recording with selected devices and auto_save setting
-            self.start_recording(microphone_device, system_device, auto_save, None).await
+        // Ensure at least microphone is available
+        if microphone_device.is_none() {
+            return Err(anyhow::anyhow!("❌ No microphone device available for recording"));
         }
 
-        #[cfg(not(target_os = "macos"))]
-        {
-            info!("Starting recording with default devices");
-
-            // Get default devices (no Bluetooth override on Windows/Linux)
-            let microphone_device = match default_input_device() {
-                Ok(device) => {
-                    info!("Using default microphone: {}", device.name);
-                    Some(Arc::new(device))
-                }
-                Err(e) => {
-                    warn!("No default microphone available: {}", e);
-                    None
-                }
-            };
-
-            let system_device = match default_output_device() {
-                Ok(device) => {
-                    info!("Using default system audio: {}", device.name);
-                    Some(Arc::new(device))
-                }
-                Err(e) => {
-                    warn!("No default system audio available: {}", e);
-                    None
-                }
-            };
-
-            // Ensure at least microphone is available
-            if microphone_device.is_none() {
-                return Err(anyhow::anyhow!("No microphone device available"));
-            }
-
-            self.start_recording(microphone_device, system_device, auto_save, None).await
-        }
+        // Start recording with selected devices and auto_save setting
+        self.start_recording(microphone_device, system_device, auto_save, None).await
     }
 
     /// Stop recording streams without saving (for use when waiting for transcription)

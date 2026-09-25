@@ -6,9 +6,7 @@
 //!
 //! | OS      | Default location                                  |
 //! |---------|---------------------------------------------------|
-//! | Windows | `%USERPROFILE%\Music\meetily-recordings`           |
 //! | macOS   | `~/Movies/meetily-recordings`                      |
-//! | Linux   | `~/Videos/meetily-recordings` (or Documents)       |
 //!
 //! Layout is `<folder>/<sanitized meeting name>/audio.mp4`, alongside
 //! `metadata.json` and `transcripts.json`.
@@ -23,7 +21,6 @@ use log::{info, warn};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-#[cfg(any(target_os = "macos", test))]
 use std::path::{Component, Path};
 use std::sync::atomic::{AtomicU32, Ordering};
 use tauri::{AppHandle, Runtime};
@@ -31,7 +28,6 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_store::StoreExt;
 
 use anyhow::Result;
-#[cfg(any(target_os = "macos", test))]
 use anyhow::{anyhow, Context};
 
 /// Hot source gains for the live capture path (f32 bits). Updated whenever prefs save.
@@ -55,10 +51,6 @@ pub fn system_gain() -> f32 {
 fn set_system_gain_runtime(gain: f32) {
     SYSTEM_GAIN_BITS.store(gain.clamp(0.5, 3.0).to_bits(), Ordering::Relaxed);
 }
-#[cfg(target_os = "macos")]
-use log::error;
-
-#[cfg(target_os = "macos")]
 use crate::audio::capture::AudioCaptureBackend;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -76,7 +68,6 @@ pub struct RecordingPreferences {
     /// Gain applied to system audio before meters, VAD, retained tracks, and mixing.
     #[serde(default = "default_system_gain")]
     pub system_gain: f32,
-    #[cfg(target_os = "macos")]
     #[serde(default)]
     pub system_audio_backend: Option<String>,
 }
@@ -99,7 +90,6 @@ impl Default for RecordingPreferences {
             preferred_system_device: None,
             mic_gain: 1.0,
             system_gain: 1.0,
-            #[cfg(target_os = "macos")]
             system_audio_backend: Some("coreaudio".to_string()),
         }
     }
@@ -107,35 +97,11 @@ impl Default for RecordingPreferences {
 
 /// Get the default recordings folder based on platform
 pub fn get_default_recordings_folder() -> PathBuf {
-    #[cfg(target_os = "windows")]
-    {
-        // Windows: %USERPROFILE%\Music\meetily-recordings
-        if let Some(music_dir) = dirs::audio_dir() {
-            music_dir.join("meetily-recordings")
-        } else {
-            // Fallback to Documents if Music folder is not available
-            dirs::document_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join("meetily-recordings")
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        // macOS: ~/Movies/meetily-recordings
-        if let Some(movies_dir) = dirs::video_dir() {
-            movies_dir.join("meetily-recordings")
-        } else {
-            // Fallback to Documents if Movies folder is not available
-            dirs::document_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join("meetily-recordings")
-        }
-    }
-
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    {
-        // Linux/Others: ~/Documents/meetily-recordings
+    // macOS: ~/Movies/meetily-recordings
+    if let Some(movies_dir) = dirs::video_dir() {
+        movies_dir.join("meetily-recordings")
+    } else {
+        // Fallback to Documents if Movies folder is not available
         dirs::document_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join("meetily-recordings")
@@ -144,7 +110,6 @@ pub fn get_default_recordings_folder() -> PathBuf {
 
 /// Ensure the recordings directory exists
 pub fn ensure_recordings_directory(path: &PathBuf) -> Result<()> {
-    #[cfg(target_os = "macos")]
     reject_current_app_bundle_path(path)?;
 
     std::fs::create_dir_all(path)?;
@@ -180,7 +145,6 @@ pub fn ensure_recordings_directory(path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-#[cfg(any(target_os = "macos", test))]
 fn resolve_path_for_containment(path: &Path) -> Result<PathBuf> {
     let absolute = if path.is_absolute() {
         path.to_path_buf()
@@ -214,7 +178,6 @@ fn resolve_path_for_containment(path: &Path) -> Result<PathBuf> {
     Ok(resolved)
 }
 
-#[cfg(any(target_os = "macos", test))]
 fn reject_path_inside_bundle(path: &Path, bundle_root: &Path) -> Result<()> {
     let candidate = resolve_path_for_containment(path)?;
     let bundle = resolve_path_for_containment(bundle_root)?;
@@ -228,7 +191,6 @@ fn reject_path_inside_bundle(path: &Path, bundle_root: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
 fn current_app_bundle_root() -> Option<PathBuf> {
     std::env::current_exe()
         .ok()?
@@ -242,7 +204,6 @@ fn current_app_bundle_root() -> Option<PathBuf> {
     })
 }
 
-#[cfg(target_os = "macos")]
 fn reject_current_app_bundle_path(path: &Path) -> Result<()> {
     if let Some(bundle_root) = current_app_bundle_root() {
         reject_path_inside_bundle(path, &bundle_root)?;
@@ -276,7 +237,6 @@ pub async fn load_recording_preferences<R: Runtime>(
             Ok(p) => {
                 info!("Loaded recording preferences from store");
                 // Update macOS backend to current value if needed
-                #[cfg(target_os = "macos")]
                 let p = {
                     let mut p = p;
                     let backend = crate::audio::capture::get_current_backend();
@@ -295,7 +255,6 @@ pub async fn load_recording_preferences<R: Runtime>(
         RecordingPreferences::default()
     };
 
-    #[cfg(target_os = "macos")]
     let prefs = if let Err(error) = reject_current_app_bundle_path(&prefs.save_folder) {
         warn!(
             "Ignoring recordings folder inside the app bundle ({}): {error}",
@@ -368,7 +327,6 @@ pub async fn save_recording_preferences<R: Runtime>(
     info!("Successfully persisted recording preferences to disk");
 
     // Save backend preference to global config
-    #[cfg(target_os = "macos")]
     if let Some(backend_str) = &preferences.system_audio_backend {
         if let Some(backend) = AudioCaptureBackend::from_string(backend_str) {
             info!("Setting audio capture backend to: {:?}", backend);
@@ -480,29 +438,10 @@ pub async fn open_recordings_folder<R: Runtime>(app: AppHandle<R>) -> Result<(),
 
     let folder_path = preferences.save_folder.to_string_lossy().to_string();
 
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer")
-            .arg(&folder_path)
-            .spawn()
-            .map_err(|e| format!("Failed to open folder: {}", e))?;
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(&folder_path)
-            .spawn()
-            .map_err(|e| format!("Failed to open folder: {}", e))?;
-    }
-
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(&folder_path)
-            .spawn()
-            .map_err(|e| format!("Failed to open folder: {}", e))?;
-    }
+    std::process::Command::new("open")
+        .arg(&folder_path)
+        .spawn()
+        .map_err(|e| format!("Failed to open folder: {}", e))?;
 
     info!("Opened recordings folder: {}", folder_path);
     Ok(())
@@ -513,66 +452,33 @@ pub async fn open_recordings_folder<R: Runtime>(app: AppHandle<R>) -> Result<(),
 /// Get available audio capture backends for the current platform
 #[tauri::command]
 pub async fn get_available_audio_backends() -> Result<Vec<String>, String> {
-    #[cfg(target_os = "macos")]
-    {
-        let backends = crate::audio::capture::get_available_backends();
-        Ok(backends.iter().map(|b| b.to_string()).collect())
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        // Only ScreenCaptureKit available on non-macOS
-        Ok(vec!["screencapturekit".to_string()])
-    }
+    let backends = crate::audio::capture::get_available_backends();
+    Ok(backends.iter().map(|b| b.to_string()).collect())
 }
 
 /// Get current audio capture backend
 #[tauri::command]
 pub async fn get_current_audio_backend() -> Result<String, String> {
-    #[cfg(target_os = "macos")]
-    {
-        let backend = crate::audio::capture::get_current_backend();
-        Ok(backend.to_string())
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        Ok("screencapturekit".to_string())
-    }
+    let backend = crate::audio::capture::get_current_backend();
+    Ok(backend.to_string())
 }
 
 /// Set audio capture backend
 #[tauri::command]
 pub async fn set_audio_backend(backend: String) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        use crate::audio::capture::AudioCaptureBackend;
+    let backend_enum = AudioCaptureBackend::from_string(&backend)
+        .ok_or_else(|| format!("Invalid backend: {}", backend))?;
 
-        let backend_enum = AudioCaptureBackend::from_string(&backend)
-            .ok_or_else(|| format!("Invalid backend: {}", backend))?;
-
-        // Selection cannot prove permission: denied taps can still open and emit
-        // zeros. Onboarding/Recheck owns the up-to-five-second audible probe.
-        if backend_enum == AudioCaptureBackend::CoreAudio {
-            info!("🔐 Core Audio backend requires Audio Capture permission (macOS 14.2+)");
-            info!("📍 Onboarding or Recheck verifies the tap while system audio is playing");
-        }
-
-        info!("Setting audio backend to: {:?}", backend_enum);
-        crate::audio::capture::set_current_backend(backend_enum);
-        Ok(())
+    // Selection cannot prove permission: denied taps can still open and emit
+    // zeros. Onboarding/Recheck owns the up-to-five-second audible probe.
+    if backend_enum == AudioCaptureBackend::CoreAudio {
+        info!("🔐 Core Audio backend requires Audio Capture permission (macOS 14.2+)");
+        info!("📍 Onboarding or Recheck verifies the tap while system audio is playing");
     }
 
-    #[cfg(not(target_os = "macos"))]
-    {
-        if backend != "screencapturekit" {
-            return Err(format!(
-                "Backend {} not available on this platform",
-                backend
-            ));
-        }
-        Ok(())
-    }
+    info!("Setting audio backend to: {:?}", backend_enum);
+    crate::audio::capture::set_current_backend(backend_enum);
+    Ok(())
 }
 
 /// Get backend information (name and description)
@@ -585,29 +491,15 @@ pub struct BackendInfo {
 
 #[tauri::command]
 pub async fn get_audio_backend_info() -> Result<Vec<BackendInfo>, String> {
-    #[cfg(target_os = "macos")]
-    {
-        use crate::audio::capture::AudioCaptureBackend;
-
-        let backends = AudioCaptureBackend::available_backends()
-            .into_iter()
-            .map(|backend| BackendInfo {
-                id: backend.to_string(),
-                name: backend.name().to_string(),
-                description: backend.description().to_string(),
-            })
-            .collect();
-        Ok(backends)
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        Ok(vec![BackendInfo {
-            id: "screencapturekit".to_string(),
-            name: "ScreenCaptureKit".to_string(),
-            description: "Default system audio capture".to_string(),
-        }])
-    }
+    let backends = AudioCaptureBackend::available_backends()
+        .into_iter()
+        .map(|backend| BackendInfo {
+            id: backend.to_string(),
+            name: backend.name().to_string(),
+            description: backend.description().to_string(),
+        })
+        .collect();
+    Ok(backends)
 }
 
 #[cfg(test)]
@@ -649,7 +541,6 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    #[cfg(unix)]
     #[test]
     fn symlink_parent_traversal_into_app_bundle_is_rejected() {
         use std::os::unix::fs::symlink;

@@ -12,9 +12,6 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::{Mutex, RwLock};
 
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-
 use super::models;
 
 // ============================================================================
@@ -126,31 +123,14 @@ impl SidecarManager {
                 // Get the target triple (same logic as before)
                 let target_triple = std::env::var("TARGET")
                     .unwrap_or_else(|_| {
-                        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-                        { "x86_64-unknown-linux-gnu".to_string() }
-                        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-                        { "aarch64-unknown-linux-gnu".to_string() }
-                        #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-                        { "x86_64-apple-darwin".to_string() }
-                        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-                        { "aarch64-apple-darwin".to_string() }
-                        #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-                        { "x86_64-pc-windows-msvc".to_string() }
-                        #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
-                        { "aarch64-pc-windows-msvc".to_string() }
-                        #[cfg(not(any(
-                            all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")),
-                            all(target_os = "macos", any(target_arch = "x86_64", target_arch = "aarch64")),
-                            all(target_os = "windows", any(target_arch = "x86_64", target_arch = "aarch64"))
-                        )))]
-                        { "unknown".to_string() }
+                        if cfg!(target_arch = "aarch64") {
+                            "aarch64-apple-darwin".to_string()
+                        } else {
+                            "x86_64-apple-darwin".to_string()
+                        }
                     });
 
-                let binary_name = if cfg!(windows) {
-                    format!("llama-helper-{}.exe", target_triple)
-                } else {
-                    format!("llama-helper-{}", target_triple)
-                };
+                let binary_name = format!("llama-helper-{}", target_triple);
 
                 // Try exact match in exe dir
                 let bundled = exe_dir.join(&binary_name);
@@ -182,32 +162,14 @@ impl SidecarManager {
              // Get the target triple again (or we could have shared it, but code duplication is safer for this tool usage)
             let target_triple = std::env::var("TARGET")
                 .unwrap_or_else(|_| {
-                     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-                    { "x86_64-unknown-linux-gnu".to_string() }
-                    // ... (abbreviated for brevity in thought, but must be full in tool)
-                     #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-                    { "aarch64-unknown-linux-gnu".to_string() }
-                    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-                    { "x86_64-apple-darwin".to_string() }
-                    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-                    { "aarch64-apple-darwin".to_string() }
-                    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-                    { "x86_64-pc-windows-msvc".to_string() }
-                    #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
-                    { "aarch64-pc-windows-msvc".to_string() }
-                    #[cfg(not(any(
-                        all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")),
-                        all(target_os = "macos", any(target_arch = "x86_64", target_arch = "aarch64")),
-                        all(target_os = "windows", any(target_arch = "x86_64", target_arch = "aarch64"))
-                    )))]
-                    { "unknown".to_string() }
+                    if cfg!(target_arch = "aarch64") {
+                        "aarch64-apple-darwin".to_string()
+                    } else {
+                        "x86_64-apple-darwin".to_string()
+                    }
                 });
 
-            let binary_name = if cfg!(windows) {
-                format!("llama-helper-{}.exe", target_triple)
-            } else {
-                format!("llama-helper-{}", target_triple)
-            };
+            let binary_name = format!("llama-helper-{}", target_triple);
 
             let bundled = resource_path.join(&binary_name);
             if bundled.exists() {
@@ -283,13 +245,7 @@ impl SidecarManager {
         log::info!("Spawning llama-helper sidecar");
         log::info!("Model path: {}", model_path.display());
 
-        #[cfg(unix)]
         let mut command = tokio::process::Command::new("nice");
-        
-        #[cfg(not(unix))]
-        let mut command = tokio::process::Command::new(&self.helper_binary_path);
-
-        #[cfg(unix)]
         command.arg("-n").arg("10").arg(&self.helper_binary_path);
 
         command
@@ -297,14 +253,6 @@ impl SidecarManager {
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit()) // Log stderr to main process
             .env("LLAMA_IDLE_TIMEOUT", self.idle_timeout_secs.to_string());
-
-        #[cfg(target_os = "windows")]
-        {
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x00004000;
-
-            command.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
-        }
 
         let mut child = command
             .spawn()

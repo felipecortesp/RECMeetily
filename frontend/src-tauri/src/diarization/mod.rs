@@ -699,12 +699,6 @@ fn ensure_wav(path: &Path) -> Result<(PathBuf, bool)> {
     .args(["-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le"])
     .arg(&out);
 
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
-
     let status = cmd
         .status()
         .map_err(|e| anyhow!("Failed to run ffmpeg: {}", e))?;

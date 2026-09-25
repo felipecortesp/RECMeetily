@@ -44,10 +44,6 @@ pub mod notifications;
 pub mod ollama;
 pub mod onboarding;
 pub mod onnx_runtime;
-#[cfg(all(test, windows))]
-#[allow(dead_code)]
-#[path = "../build/onnxruntime.rs"]
-mod onnx_runtime_build_tests;
 pub mod openai;
 pub mod anthropic;
 pub mod groq;
@@ -406,25 +402,17 @@ pub fn run() {
     log::set_max_level(log::LevelFilter::Info);
     crash_report::install_panic_hook();
 
-    // Set the unpackaged Windows app identity before Tauri creates any HWNDs.
-    // The taskbar and installer shortcuts use this same AUMID.
-    #[cfg(windows)]
-    notifications::native_windows::ensure_app_identity();
-
     let mut builder = tauri::Builder::default();
 
-    #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
-    {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
-            log_info!(
-                "Second app instance requested with args: {:?}, cwd: {:?}",
-                args,
-                cwd
-            );
+    builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        log_info!(
+            "Second app instance requested with args: {:?}, cwd: {:?}",
+            args,
+            cwd
+        );
 
-            tray::focus_main_window(app);
-        }));
-    }
+        tray::focus_main_window(app);
+    }));
 
     builder
         .plugin(tauri_plugin_notification::init())
@@ -441,8 +429,6 @@ pub fn run() {
             if let Err(error) = crash_report::start_session() {
                 log::error!("Failed to initialize crash reporting: {error}");
             }
-            #[cfg(windows)]
-            onnx_runtime::initialize(_app.handle());
             log::info!("Application setup complete");
 
             // Initialize system tray
@@ -811,7 +797,6 @@ pub fn run() {
             onboarding::reset_onboarding_status_cmd,
             onboarding::complete_onboarding,
             // System settings commands
-            #[cfg(target_os = "macos")]
             utils::open_system_settings,
             // Retranscription commands
             audio::retranscription::start_retranscription_command,
@@ -828,7 +813,6 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|_app_handle, event| {
             match event {
-                #[cfg(target_os = "macos")]
                 tauri::RunEvent::Reopen { .. } => {
                     tray::focus_main_window(_app_handle);
                 }
