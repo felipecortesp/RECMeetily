@@ -183,17 +183,20 @@ impl WhisperEngine {
         // Use centralized model catalog from config.rs
         let model_configs = WHISPER_MODEL_CATALOG;
 
-        for &(name, filename, size_mb, accuracy, speed, description) in model_configs {
+        for &(name, filename, size_mb, accuracy, speed, description, expected_size_bytes, _sha256) in model_configs {
             let model_path = models_dir.join(filename);
             let status = if model_path.exists() {
-                // Check if file size is reasonable (at least 1MB for a valid model)
+                // Check the file size exactly against the pinned catalog size
+                // (SHA-256 is verified once, right after download — re-hashing
+                // multi-GB models on every discover_models() call would make
+                // the model list slow to refresh).
                 match std::fs::metadata(&model_path) {
                     Ok(metadata) => {
                         let file_size_bytes = metadata.len();
                         let file_size_mb = file_size_bytes / (1024 * 1024);
-                        let expected_min_size_mb = (size_mb as f64 * 0.9) as u64; // Allow 90% of expected size as minimum for more accurate corruption detection
+                        let expected_min_size_mb = expected_size_bytes / (1024 * 1024);
 
-                        if file_size_mb >= expected_min_size_mb && file_size_mb > 1 {
+                        if file_size_bytes == expected_size_bytes {
                             // File size looks good, but let's also check if it's a valid GGML file
                             match self.validate_model_file(&model_path).await {
                                 Ok(_) => ModelStatus::Available,
@@ -947,29 +950,24 @@ impl WhisperEngine {
             *cancel_flag = None;
         }
 
-        // Official ggerganov/whisper.cpp model URLs from Hugging Face
-        let model_url = match model_name {
-            // Standard f16 models
-            "tiny" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
-            "base" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
-            "small" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
-            "medium" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
-            "large-v3-turbo" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
-            "large-v3" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
+        // Look up the catalog entry so the URL, exact size and SHA-256 all
+        // come from one pinned source of truth (config.rs).
+        let catalog_entry = WHISPER_MODEL_CATALOG
+            .iter()
+            .find(|&&(name, ..)| name == model_name)
+            .ok_or_else(|| anyhow!("Unsupported model: {}", model_name))?;
+        let (_, catalog_filename, _, _, _, _, expected_size_bytes, expected_sha256) = *catalog_entry;
 
-            // Q5_1 quantized models
-            "tiny-q5_1" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
-            "base-q5_1" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
-            "small-q5_1" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+        // Pinned to WHISPER_MODEL_COMMIT — deliberately not the mutable
+        // `main` branch — so a future upload to ggerganov/whisper.cpp can't
+        // silently change what's downloaded without the pinned SHA-256
+        // below catching it.
+        let model_url = format!(
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/{}/{}",
+            crate::config::WHISPER_MODEL_COMMIT, catalog_filename
+        );
+        let model_url = model_url.as_str();
 
-            // Q5_0 quantized models
-            "medium-q5_0" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin",
-            "large-v3-turbo-q5_0" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
-            "large-v3-q5_0" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin",
-
-            _ => return Err(anyhow!("Unsupported model: {}", model_name))
-        };
-        
         log::info!("Model URL for {}: {}", model_name, model_url);
         
         // Generate correct filename - all models follow ggml-{model_name}.bin pattern
@@ -1104,9 +1102,31 @@ impl WhisperEngine {
         
         file.flush().await
             .map_err(|e| anyhow!("Failed to flush file: {}", e))?;
-        
-        log::info!("Download completed for model: {}", model_name);
-        
+        drop(file);
+
+        log::info!("Verifying downloaded model: {} (exact size + SHA-256)", model_name);
+        let expected = crate::download_verify::ExpectedArtifact {
+            name: catalog_filename,
+            size: expected_size_bytes,
+            sha256: expected_sha256,
+        };
+        if let Err(error) = crate::download_verify::verify_file(&file_path, &expected).await {
+            let _ = fs::remove_file(&file_path).await;
+            {
+                let mut models = self.available_models.write().await;
+                if let Some(model_info) = models.get_mut(model_name) {
+                    model_info.status = ModelStatus::Error(error.to_string());
+                }
+            }
+            {
+                let mut active = self.active_downloads.write().await;
+                active.remove(model_name);
+            }
+            return Err(anyhow!("Downloaded {} failed verification and was deleted: {}", model_name, error));
+        }
+
+        log::info!("Download completed and verified for model: {}", model_name);
+
         // Update model status to available
         {
             let mut models = self.available_models.write().await;

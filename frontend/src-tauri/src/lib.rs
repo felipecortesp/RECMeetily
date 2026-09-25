@@ -40,6 +40,7 @@ pub mod console_utils;
 pub mod crash_report;
 pub mod database;
 pub mod diarization;
+pub mod download_verify;
 pub mod notifications;
 pub mod ollama;
 pub mod onboarding;

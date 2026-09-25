@@ -16,6 +16,7 @@ use tokio::sync::{Notify, RwLock};
 use tokio::time::timeout;
 
 use super::models::{get_available_models, get_model_by_name};
+use crate::download_verify::{verify_file, ExpectedArtifact};
 
 // ============================================================================
 // Model Status Types
@@ -817,6 +818,31 @@ impl ModelManager {
             self.release_download(model_name, &control).await;
 
             return Err(anyhow!("File validation failed: {}", e));
+        }
+
+        // SHA-256, checked only now that the file is exactly the expected
+        // size and has a valid GGUF/GGML header — never mid-resume, so a
+        // partial file is never hashed only to be rejected for being partial.
+        let expected_artifact = ExpectedArtifact {
+            name: &model_def.gguf_file,
+            size: model_def.size_bytes,
+            sha256: &model_def.sha256,
+        };
+        if let Err(e) = verify_file(&file_path, &expected_artifact).await {
+            log::error!("Downloaded file failed SHA-256 verification: {}", e);
+
+            let _ = fs::remove_file(&file_path).await;
+
+            {
+                let mut models = self.available_models.write().await;
+                if let Some(model_info) = models.get_mut(model_name) {
+                    model_info.status = ModelStatus::Error(format!("Checksum verification failed: {}", e));
+                }
+            }
+
+            self.release_download(model_name, &control).await;
+
+            return Err(anyhow!("Checksum verification failed: {}", e));
         }
 
         // Commit completion while ownership is still held. Cancellation is

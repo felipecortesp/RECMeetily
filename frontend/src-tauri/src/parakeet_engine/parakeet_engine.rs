@@ -1,3 +1,4 @@
+use crate::download_verify::{verify_file, ExpectedArtifact};
 use crate::parakeet_engine::model::ParakeetModel;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -133,47 +134,80 @@ pub struct ParakeetEngine {
 }
 
 impl ParakeetEngine {
+    /// Hugging Face is the only download source: this fork's own GitHub
+    /// mirror was removed (2026-09) because it could not be checksum-audited
+    /// as independently as the upstream ONNX export. URLs are pinned to the
+    /// exact repository commit so a future upload to `main` can never change
+    /// what a pinned SHA-256 below expects — the version bumps are
+    /// intentional maintenance, not automatic.
     fn download_base_urls(model_name: &str) -> Vec<&'static str> {
         if model_name.contains("-v2-") {
-            vec!["https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main"]
+            vec!["https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/0bbb45a3365852604aef28b538a8f066f4ccaa85"]
         } else {
-            vec![
-                "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main",
-                "https://github.com/TylerBuza/Meetily-ActuallyFree/releases/download/parakeet-tdt-0.6b-v3-onnx",
-            ]
+            vec!["https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce"]
         }
     }
 
+    /// Per-file expected size and SHA-256, pinned from the Hugging Face LFS
+    /// metadata at the commits referenced by [`Self::download_base_urls`].
+    /// Only the files the downloader actually fetches are listed — FP32
+    /// export's external-data companion (`encoder-model.onnx.data`) is not
+    /// currently downloaded by this engine, so it is intentionally absent
+    /// here rather than listed and silently unverified.
+    fn download_file_artifacts(
+        model_name: &str,
+        quantization: &QuantizationType,
+    ) -> HashMap<&'static str, ExpectedArtifact<'static>> {
+        match quantization {
+            QuantizationType::Int8 if model_name.contains("-v2-") => [
+                ExpectedArtifact { name: "encoder-model.int8.onnx", size: 652_184_014, sha256: "3e0581fda6ab843888b51e56d7ee78b6d5bc3237ec113af1f732d1d5286aa155" },
+                ExpectedArtifact { name: "decoder_joint-model.int8.onnx", size: 8_998_286, sha256: "a449f49acd68979d418651dd2dcb737cc0f1bf0225e009e29ee326354edbf7d3" },
+                ExpectedArtifact { name: "nemo128.onnx", size: 139_764, sha256: "a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f" },
+                ExpectedArtifact { name: "vocab.txt", size: 9_384, sha256: "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d" },
+            ]
+            .into_iter()
+            .map(|artifact| (artifact.name, artifact))
+            .collect(),
+            QuantizationType::Int8 => [
+                ExpectedArtifact { name: "encoder-model.int8.onnx", size: 652_183_999, sha256: "6139d2fa7e1b086097b277c7149725edbab89cc7c7ae64b23c741be4055aff09" },
+                ExpectedArtifact { name: "decoder_joint-model.int8.onnx", size: 18_202_004, sha256: "eea7483ee3d1a30375daedc8ed83e3960c91b098812127a0d99d1c8977667a70" },
+                ExpectedArtifact { name: "nemo128.onnx", size: 139_764, sha256: "a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f" },
+                ExpectedArtifact { name: "vocab.txt", size: 93_939, sha256: "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d" },
+            ]
+            .into_iter()
+            .map(|artifact| (artifact.name, artifact))
+            .collect(),
+            QuantizationType::FP32 if model_name.contains("-v2-") => [
+                ExpectedArtifact { name: "encoder-model.onnx", size: 41_770_866, sha256: "3987bcd28175d829d12888a996a84e8f62a0e374d9ffd640662c1515adc679d3" },
+                ExpectedArtifact { name: "decoder_joint-model.onnx", size: 35_792_059, sha256: "cbb52a07bd70ab5b67f8439d4b3cd8704b18467b4430bcacb5adabe154b8d191" },
+                ExpectedArtifact { name: "nemo128.onnx", size: 139_764, sha256: "a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f" },
+                ExpectedArtifact { name: "vocab.txt", size: 9_384, sha256: "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d" },
+            ]
+            .into_iter()
+            .map(|artifact| (artifact.name, artifact))
+            .collect(),
+            QuantizationType::FP32 => [
+                ExpectedArtifact { name: "encoder-model.onnx", size: 41_770_866, sha256: "98a74b21b4cc0017c1e7030319a4a96f4a9506e50f0708f3a516d02a77c96bb1" },
+                ExpectedArtifact { name: "decoder_joint-model.onnx", size: 72_520_893, sha256: "e978ddf6688527182c10fde2eb4b83068421648985ef23f7a86be732be8706c1" },
+                ExpectedArtifact { name: "nemo128.onnx", size: 139_764, sha256: "a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f" },
+                ExpectedArtifact { name: "vocab.txt", size: 93_939, sha256: "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d" },
+            ]
+            .into_iter()
+            .map(|artifact| (artifact.name, artifact))
+            .collect(),
+        }
+    }
+
+    /// Expected sizes only, derived from [`Self::download_file_artifacts`]
+    /// so the two never drift apart.
     fn download_file_sizes(
         model_name: &str,
         quantization: &QuantizationType,
     ) -> HashMap<&'static str, u64> {
-        match quantization {
-            QuantizationType::Int8 if model_name.contains("-v2-") => [
-                ("encoder-model.int8.onnx", 652_184_014),
-                ("decoder_joint-model.int8.onnx", 8_998_286),
-                ("nemo128.onnx", 139_764),
-                ("vocab.txt", 9_384),
-            ]
+        Self::download_file_artifacts(model_name, quantization)
             .into_iter()
-            .collect(),
-            QuantizationType::Int8 => [
-                ("encoder-model.int8.onnx", 652_183_999),
-                ("decoder_joint-model.int8.onnx", 18_202_004),
-                ("nemo128.onnx", 139_764),
-                ("vocab.txt", 93_939),
-            ]
-            .into_iter()
-            .collect(),
-            QuantizationType::FP32 => [
-                ("encoder-model.onnx", 41_800_000 + 2_440_000_000),
-                ("decoder_joint-model.onnx", 72_500_000),
-                ("nemo128.onnx", 140_000),
-                ("vocab.txt", 93_900),
-            ]
-            .into_iter()
-            .collect(),
-        }
+            .map(|(name, artifact)| (name, artifact.size))
+            .collect()
     }
 
     /// Create a new Parakeet engine with optional custom models directory
@@ -657,9 +691,7 @@ impl ParakeetEngine {
             }
         }
 
-        // Both v3 sources contain the same compatible ONNX export. Prefer the
-        // established Hugging Face repository and fail over to this fork's
-        // release assets when one CDN is temporarily unavailable.
+        // Hugging Face only — see download_base_urls() doc comment.
         let base_urls = Self::download_base_urls(model_name);
 
         // Determine which files to download based on quantization
@@ -697,6 +729,7 @@ impl ParakeetEngine {
 
         let total_files = files_to_download.len();
 
+        let artifacts = Self::download_file_artifacts(model_name, &model_info.quantization);
         let file_sizes = Self::download_file_sizes(model_name, &model_info.quantization);
 
         // Calculate total expected download size
@@ -751,13 +784,28 @@ impl ParakeetEngine {
             let expected_size = file_sizes.get(*filename).copied().unwrap_or(0);
 
             if existing_size == expected_size && expected_size > 0 {
-                log::info!(
-                    "Skipping complete file: {} ({:.2} MB, expected: {:.2} MB)",
-                    filename,
-                    existing_size as f64 / 1_048_576.0,
-                    expected_size as f64 / 1_048_576.0
+                // Right-sized doesn't mean intact — verify the checksum before
+                // trusting a file left over from a previous run.
+                let verified = match artifacts.get(*filename) {
+                    Some(artifact) => verify_file(&file_path, artifact).await.is_ok(),
+                    None => true, // No pinned checksum for this file; size match is all we can check.
+                };
+                if verified {
+                    log::info!(
+                        "Skipping complete and verified file: {} ({:.2} MB, expected: {:.2} MB)",
+                        filename,
+                        existing_size as f64 / 1_048_576.0,
+                        expected_size as f64 / 1_048_576.0
+                    );
+                    continue;
+                }
+                log::warn!(
+                    "{} is right-sized but failed checksum verification — re-downloading",
+                    filename
                 );
-                continue;
+                fs::remove_file(&file_path)
+                    .await
+                    .map_err(|e| anyhow!("Failed to remove unverified {}: {}", filename, e))?;
             }
 
             if existing_size > expected_size {
@@ -934,8 +982,24 @@ impl ParakeetEngine {
                 ));
             }
 
+            if let Some(artifact) = artifacts.get(*filename) {
+                if let Err(error) = verify_file(&file_path, artifact).await {
+                    let _ = fs::remove_file(&file_path).await;
+                    return Err(anyhow!(
+                        "Downloaded {} failed SHA-256 verification and was deleted: {}",
+                        filename,
+                        error
+                    ));
+                }
+            } else {
+                log::warn!(
+                    "No pinned checksum for {} — downloaded but not SHA-256 verified",
+                    filename
+                );
+            }
+
             log::info!(
-                "Completed download: {} ({:.2} MB, overall progress: {:.1}%)",
+                "Completed and verified download: {} ({:.2} MB, overall progress: {:.1}%)",
                 filename,
                 expected_size as f64 / 1_048_576.0,
                 (total_downloaded as f64 / total_size_bytes as f64) * 100.0
@@ -1051,14 +1115,32 @@ mod tests {
     }
 
     #[test]
-    fn v3_download_prefers_hugging_face_with_github_fallback() {
+    fn v3_download_uses_only_hugging_face_pinned_to_commit() {
         assert_eq!(
             ParakeetEngine::download_base_urls("parakeet-tdt-0.6b-v3-int8"),
-            vec![
-                "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main",
-                "https://github.com/TylerBuza/Meetily-ActuallyFree/releases/download/parakeet-tdt-0.6b-v3-onnx",
-            ]
+            vec!["https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce"]
         );
+    }
+
+    #[test]
+    fn v2_download_uses_only_hugging_face_pinned_to_commit() {
+        assert_eq!(
+            ParakeetEngine::download_base_urls("parakeet-tdt-0.6b-v2-int8"),
+            vec!["https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/0bbb45a3365852604aef28b538a8f066f4ccaa85"]
+        );
+    }
+
+    #[test]
+    fn download_file_artifacts_carry_pinned_sha256() {
+        let artifacts = ParakeetEngine::download_file_artifacts(
+            "parakeet-tdt-0.6b-v3-int8",
+            &QuantizationType::Int8,
+        );
+        assert_eq!(
+            artifacts["encoder-model.int8.onnx"].sha256,
+            "6139d2fa7e1b086097b277c7149725edbab89cc7c7ae64b23c741be4055aff09"
+        );
+        assert_eq!(artifacts["encoder-model.int8.onnx"].size, 652_183_999);
     }
 
     #[test]
