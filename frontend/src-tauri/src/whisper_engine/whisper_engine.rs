@@ -791,8 +791,8 @@ impl WhisperEngine {
             // This was causing significant I/O overhead during transcription
             // Only log segments for very long audio (>30s) or when explicitly debugging
             if duration_seconds > 30.0 {
-                perf_trace!("Segment {} ({:.2}s-{:.2}s): '{}'",
-                           i, _start_time as f64 / 100.0, _end_time as f64 / 100.0, segment_text);
+                perf_trace!("Segment {} ({:.2}s-{:.2}s): {} chars",
+                           i, _start_time as f64 / 100.0, _end_time as f64 / 100.0, segment_text.chars().count());
             }
 
             // Clean and append segment text
@@ -818,14 +818,14 @@ impl WhisperEngine {
             }
         } else {
             if cleaned_result != final_result {
-                log::info!("Cleaned repetitive transcription #{}: '{}' -> '{}'", transcription_count, final_result, cleaned_result);
+                log::info!("Cleaned repetitive transcription #{}: {} chars -> {} chars", transcription_count, final_result.chars().count(), cleaned_result.chars().count());
             }
             // Reduce successful transcription logging frequency
             // Only log every 5th result or significant results (>50 chars) to reduce I/O overhead
             if transcription_count % 5 == 0 || cleaned_result.len() > 50 || duration_seconds > 10.0 {
-                log::info!("Transcription #{} result: '{}'", transcription_count, cleaned_result);
+                log::info!("Transcription #{} result: {} chars", transcription_count, cleaned_result.chars().count());
             } else {
-                perf_debug!("Transcription #{} result: '{}'", transcription_count, cleaned_result);
+                perf_debug!("Transcription #{} result: {} chars", transcription_count, cleaned_result.chars().count());
             }
         }
 

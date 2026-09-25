@@ -992,7 +992,7 @@ async fn stop_recording_inner<R: Runtime>(
 
     info!("ðŸ“¤ Preparing recording metadata for frontend save");
     info!("   folder_path: {:?}", folder_path_str);
-    info!("   meeting_name: {:?}", meeting_name_str);
+    info!("   meeting_name set: {}", meeting_name_str.is_some());
 
     // Database save removed - frontend will handle this after receiving all transcripts
     info!("â„¹ï¸ Skipping database save in Rust - frontend will save after all transcripts received");

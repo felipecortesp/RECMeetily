@@ -674,7 +674,7 @@ fn ensure_wav(path: &Path) -> Result<(PathBuf, bool)> {
     }
 
     let ffmpeg = crate::audio::ffmpeg::find_ffmpeg_path()
-        .ok_or_else(|| anyhow!("ffmpeg not found — cannot decode {}", path.display()))?;
+        .ok_or_else(|| anyhow!("The bundled ffmpeg binary is missing, so {} can't be decoded. Please reinstall the app.", path.display()))?;
 
     static TEMP_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let out = std::env::temp_dir().join(format!(

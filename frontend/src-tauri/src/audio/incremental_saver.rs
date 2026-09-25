@@ -206,7 +206,7 @@ impl IncrementalAudioSaver {
         std::fs::write(&list_file, list_content)?;
 
         let ffmpeg_path = find_ffmpeg_path()
-            .ok_or_else(|| anyhow!("FFmpeg not found. Please install FFmpeg to finalize recordings."))?;
+            .ok_or_else(|| anyhow!("The bundled ffmpeg binary is missing, so the recording can't be finalized. Please reinstall the app."))?;
         info!("Using FFmpeg at: {:?}", ffmpeg_path);
 
         // Run FFmpeg concat command
@@ -302,7 +302,7 @@ fn recover_checkpoint_track(
         .map_err(|e| format!("Failed to write {}: {e}", concat_file.display()))?;
 
     let ffmpeg = find_ffmpeg_path()
-        .ok_or_else(|| "FFmpeg not found. Please install FFmpeg to recover audio.".to_string())?;
+        .ok_or_else(|| "The bundled ffmpeg binary is missing, so audio recovery can't proceed. Please reinstall the app.".to_string())?;
     let temp_output = output_path.with_extension("mp4.recovering");
     let _ = std::fs::remove_file(&temp_output);
     let mut command = std::process::Command::new(ffmpeg);
