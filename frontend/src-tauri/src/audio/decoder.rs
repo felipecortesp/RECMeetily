@@ -279,8 +279,8 @@ fn convert_to_wav_with_ffmpeg(
 ) -> Result<tempfile::TempPath> {
     let ffmpeg_path = find_ffmpeg_path().ok_or_else(|| {
         anyhow!(
-            "FFmpeg not found. FFmpeg is required to decode .{} files. \
-             It will be downloaded automatically on next launch, or install it manually.",
+            "The bundled ffmpeg binary is missing, so .{} files can't be decoded. \
+             Please reinstall the app.",
             input_path
                 .extension()
                 .and_then(|e| e.to_str())

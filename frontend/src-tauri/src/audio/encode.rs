@@ -28,7 +28,7 @@ pub fn encode_single_audio(
     }
 
     let ffmpeg_path = find_ffmpeg_path().ok_or_else(|| {
-        anyhow::anyhow!("FFmpeg not found. Please install FFmpeg to save recordings.")
+        anyhow::anyhow!("The bundled ffmpeg binary is missing, so the recording can't be saved. Please reinstall the app.")
     })?;
     let output_path = output_path
         .to_str()
