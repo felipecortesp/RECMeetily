@@ -24,7 +24,6 @@ import { useConfig } from '@/contexts/ConfigContext';
 import { useRouter } from 'next/navigation';
 import { LANGUAGES } from '@/constants/languages';
 import { useTranscriptionModels, ModelOption } from '@/hooks/useTranscriptionModels';
-import Analytics from '@/lib/analytics';
 
 interface RetranscribeDialogProps {
   open: boolean;
@@ -191,12 +190,6 @@ export function RetranscribeDialog({
         'retranscription-complete',
         async (event) => {
           if (event.payload.meeting_id === meetingId) {
-            await Analytics.track('enhance_transcript_completed', {
-              success: 'true',
-              duration_seconds: event.payload.duration_seconds.toString(),
-              segments_count: event.payload.segments_count.toString()
-            });
-
             setIsProcessing(false);
             toast.success(
               `Retranscription complete! ${event.payload.segments_count} segments created.`
@@ -218,8 +211,6 @@ export function RetranscribeDialog({
         'retranscription-error',
         async (event) => {
           if (event.payload.meeting_id === meetingId) {
-            await Analytics.trackError('enhance_transcript_failed', event.payload.error);
-
             setIsProcessing(false);
             setError(event.payload.error);
           }
@@ -263,12 +254,6 @@ export function RetranscribeDialog({
 
     try {
       const languageToSend = isParakeetModel ? null : selectedLang === 'auto' ? null : selectedLang;
-      await Analytics.track('enhance_transcript_started', {
-        language: isParakeetModel ? 'auto' : (selectedLang === 'auto' ? 'auto' : selectedLang),
-        model_provider: selectedModelDetails?.provider || '',
-        model_name: selectedModelDetails?.name || '',
-        vocabulary_scope: vocabularyTerms.trim() ? vocabularyScope : 'unchanged'
-      });
 
       await invoke('start_retranscription_command', {
         meetingId,
@@ -283,8 +268,6 @@ export function RetranscribeDialog({
       setIsProcessing(false);
       const errorMsg = typeof err === 'string' ? err : (err?.message || String(err));
       setError(errorMsg);
-
-      await Analytics.trackError('enhance_transcript_failed', errorMsg);
     }
   };
 

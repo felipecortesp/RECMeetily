@@ -33,9 +33,7 @@ macro_rules! perf_trace {
 // Re-export async logging macros for external use (removed due to macro conflicts)
 
 // Declare audio module
-pub mod analytics;
 pub mod api;
-pub mod app_update;
 pub mod audio;
 pub mod config;
 pub mod console_utils;
@@ -78,25 +76,6 @@ static RECORDING_FLAG: AtomicBool = AtomicBool::new(false);
 // Frontend overwrites on startup from OS locale (en if English, else auto).
 static LANGUAGE_PREFERENCE: std::sync::LazyLock<StdMutex<String>> =
     std::sync::LazyLock::new(|| StdMutex::new("en".to_string()));
-
-#[tauri::command]
-fn get_check_updates_on_launch() -> bool {
-    std::fs::read_to_string(paths::install_data_root().join("check-updates-on-launch.txt"))
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "yes" | "true" | "1"))
-        .unwrap_or(false)
-}
-
-#[tauri::command]
-fn set_check_updates_on_launch(enabled: bool) -> Result<(), String> {
-    let data_root = paths::install_data_root();
-    std::fs::create_dir_all(&data_root)
-        .map_err(|error| format!("Failed to create app data directory: {error}"))?;
-    std::fs::write(
-        data_root.join("check-updates-on-launch.txt"),
-        if enabled { "yes\n" } else { "no\n" },
-    )
-    .map_err(|error| format!("Failed to save update preference: {error}"))
-}
 
 #[derive(Debug, Deserialize)]
 struct RecordingArgs {
@@ -315,8 +294,6 @@ async fn is_audio_level_monitoring() -> bool {
     audio::simple_level_monitor::is_monitoring()
 }
 
-// Analytics commands are now handled by analytics::commands module
-
 // Whisper commands are now handled by whisper_engine::commands module
 
 #[tauri::command]
@@ -454,9 +431,6 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
-        .manage(app_update::UpdateDownloadState::default())
         .manage(whisper_engine::parallel_commands::ParallelProcessorState::new())
         .manage(Arc::new(RwLock::new(
             None::<notifications::manager::NotificationManager<tauri::Wry>>,
@@ -619,31 +593,6 @@ pub fn run() {
             get_transcription_status,
             read_audio_file,
             save_transcript,
-            analytics::commands::init_analytics,
-            analytics::commands::disable_analytics,
-            analytics::commands::track_event,
-            analytics::commands::identify_user,
-            analytics::commands::track_meeting_started,
-            analytics::commands::track_recording_started,
-            analytics::commands::track_recording_stopped,
-            analytics::commands::track_meeting_deleted,
-            analytics::commands::track_settings_changed,
-            analytics::commands::track_feature_used,
-            analytics::commands::is_analytics_enabled,
-            analytics::commands::start_analytics_session,
-            analytics::commands::end_analytics_session,
-            analytics::commands::track_daily_active_user,
-            analytics::commands::track_user_first_launch,
-            analytics::commands::is_analytics_session_active,
-            analytics::commands::track_summary_generation_started,
-            analytics::commands::track_summary_generation_completed,
-            analytics::commands::track_summary_regenerated,
-            analytics::commands::track_model_changed,
-            analytics::commands::track_custom_prompt_used,
-            analytics::commands::track_meeting_ended,
-            analytics::commands::track_analytics_enabled,
-            analytics::commands::track_analytics_disabled,
-            analytics::commands::track_analytics_transparency_viewed,
             whisper_engine::commands::whisper_init,
             whisper_engine::commands::whisper_get_available_models,
             whisper_engine::commands::whisper_load_model,
@@ -689,11 +638,6 @@ pub fn run() {
             whisper_engine::parallel_commands::prepare_audio_chunks,
             whisper_engine::parallel_commands::test_parallel_processing_setup,
             get_audio_devices,
-            get_check_updates_on_launch,
-            set_check_updates_on_launch,
-            app_update::download_app_update,
-            app_update::cancel_app_update_download,
-            app_update::install_downloaded_app_update,
             crash_report::get_pending_crash_report,
             crash_report::create_crash_report_zip,
             crash_report::dismiss_pending_crash_report,
@@ -738,7 +682,6 @@ pub fn run() {
             anthropic::anthropic::get_anthropic_models,
             groq::groq::get_groq_models,
             api::api_get_meetings,
-            api::api_search_transcripts,
             database::repositories::person::api_global_search,
             database::repositories::person::api_get_person_profile,
             database::repositories::person::api_update_person_notes,
@@ -757,9 +700,6 @@ pub fn run() {
             minibar::exit_compact_mode,
             minibar::is_compact_mode,
             minibar::stop_recording_from_minibar,
-            api::api_get_profile,
-            api::api_save_profile,
-            api::api_update_profile,
             api::api_get_model_config,
             api::api_save_model_config,
             api::api_get_api_key,
@@ -769,7 +709,6 @@ pub fn run() {
             api::api_save_transcript_config,
             api::api_get_post_call_transcript_config,
             api::api_save_post_call_transcript_config,
-            api::api_get_transcript_api_key,
             api::api_get_whisper_vocabulary,
             api::api_save_global_whisper_vocabulary,
             api::api_save_meeting_whisper_vocabulary,
@@ -780,8 +719,6 @@ pub fn run() {
             api::api_save_meeting_title,
             api::api_save_transcript,
             api::open_meeting_folder,
-            api::test_backend_connection,
-            api::debug_backend_connection,
             api::open_external_url,
             // Custom OpenAI commands
             api::api_save_custom_openai_config,

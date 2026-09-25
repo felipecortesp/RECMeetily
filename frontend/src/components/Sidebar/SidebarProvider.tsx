@@ -2,7 +2,6 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import Analytics from '@/lib/analytics';
 import { invoke } from '@tauri-apps/api/core';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
 
@@ -37,8 +36,6 @@ interface SidebarContextType {
   handleRecordingToggle: () => void;
   setServerAddress: (address: string) => void;
   serverAddress: string;
-  transcriptServerAddress: string;
-  setTranscriptServerAddress: (address: string) => void;
   // Summary polling management
   activeSummaryPolls: Map<string, NodeJS.Timeout>;
   startSummaryPolling: (meetingId: string, processId: string, onUpdate: (result: any) => void) => void;
@@ -65,7 +62,6 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [sidebarItems, setSidebarItems] = useState<SidebarItem[]>([]);
   const [isMeetingActive, setIsMeetingActive] = useState(false);
   const [serverAddress, setServerAddress] = useState('');
-  const [transcriptServerAddress, setTranscriptServerAddress] = useState('');
   // Interval handles live in a ref so start/stop stay identity-stable.
   // Putting them in useState recreated the callbacks on every poll start, which
   // re-ran page-level effect cleanups and immediately killed the brand-new poll
@@ -98,11 +94,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
           duration_seconds: meeting.duration_seconds,
         }));
         setMeetings(transformedMeetings);
-        Analytics.trackBackendConnection(true);
       } catch (error) {
         console.error('Error fetching meetings:', error);
         setMeetings([]);
-        Analytics.trackBackendConnection(false, error instanceof Error ? error.message : 'Unknown error');
       }
     }
   }, [serverAddress]);
@@ -112,11 +106,10 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   }, [serverAddress, fetchMeetings]);
 
   useEffect(() => {
-    const fetchSettings = async () => {
-      setServerAddress('http://localhost:5167');
-      setTranscriptServerAddress('http://127.0.0.1:8178/stream');
-    };
-    fetchSettings();
+    // Local Tauri commands are always available; this flag just gates the
+    // effects above until initial setup has run (there is no remote backend
+    // to address any more).
+    setServerAddress('local');
   }, []);
 
   const baseItems: SidebarItem[] = [
@@ -170,7 +163,6 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     if (pathname !== '/') {
       router.push('/');
     }
-    Analytics.trackButtonClick('new_recording_ready', 'sidebar');
   };
 
   // Summary polling management
@@ -308,8 +300,6 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
       handleRecordingToggle,
       setServerAddress,
       serverAddress,
-      transcriptServerAddress,
-      setTranscriptServerAddress,
       activeSummaryPolls,
       startSummaryPolling,
       stopSummaryPolling,
