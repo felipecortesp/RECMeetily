@@ -2,6 +2,8 @@
 name = "llama-helper"
 version = "0.2.12"
 edition = "2021"
+license = "MIT"
+publish = false
 
 [dependencies]
 anyhow = "1.0"

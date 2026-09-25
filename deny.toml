@@ -1,0 +1,209 @@
+# cargo-deny configuration for RECMeetily.
+#
+# The app builds only for macOS (Apple Silicon, aarch64-apple-darwin); the
+# workspace still resolves a handful of crates that only compile on other
+# platforms (Windows/UEFI/Linux). We keep the graph unrestricted so `cargo
+# deny check` still surfaces what's *in the lockfile*, but license/advisory
+# decisions below take into account which crates are actually compiled into
+# our binaries.
+#
+# Regenerate the baseline with `cargo deny init` if this file needs a reset.
+#
+# Note: with `unmaintained = "workspace"` below, cargo-deny only fails on
+# unmaintained/unsound (informational) advisories reachable from a *direct*
+# dependency of a workspace member; most `ignore` entries for those
+# categories are therefore not strictly required for `cargo deny check` to
+# pass (cargo-deny will print an `advisory-not-detected` warning for them).
+# They are kept anyway, with the investigation that justifies each one, so
+# the same crate/reason list can be mirrored into `audit.toml` for
+# `cargo audit`, which has no such scoping and does flag all of them.
+
+[graph]
+targets = []
+all-features = false
+no-default-features = false
+
+[output]
+feature-depth = 1
+
+# ---------------------------------------------------------------------------
+# Advisories (RUSTSEC database)
+# https://embarkstudios.github.io/cargo-deny/checks/advisories/cfg.html
+# ---------------------------------------------------------------------------
+[advisories]
+db-path = "$CARGO_HOME/advisory-dbs"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+# Yanked crate versions should never be allowed to linger in the lockfile.
+yanked = "deny"
+
+# Unmaintained crates: only fail on advisories that affect crates actually
+# reachable from our own workspace members (not every unmaintained crate
+# anywhere in the graph, most of which are transitive deps of tauri/gtk on
+# platforms we don't build for).
+unmaintained = "workspace"
+
+ignore = [
+    # rsa 0.9.10 - RUSTSEC-2023-0071 (Marvin Attack timing sidechannel).
+    # No fixed release exists upstream (rsa crate maintainers have not
+    # shipped a constant-time fix as of 2026-09). It is pulled in only via
+    # sqlx's optional "mysql" driver (sqlx-mysql -> rsa); our sqlx dependency
+    # only enables features = ["runtime-tokio", "sqlite", "chrono"], so
+    # sqlx-mysql/rsa are never compiled into any RECMeetily binary. Verified
+    # with `cargo tree -i rsa --target aarch64-apple-darwin -e normal`
+    # (empty output) and `cargo deny check advisories` (does not report it).
+    { id = "RUSTSEC-2023-0071", reason = "no upstream fix; pulled only by sqlx's unused mysql driver, never compiled on macOS (verified via cargo tree -i rsa)" },
+
+    # h2 0.3.27 - RUSTSEC-2026-0258 (unbounded empty DATA frames).
+    # Fix requires h2 >=0.4.16, which is only pulled in by hyper 0.14 via
+    # reqwest 0.11 (hyper-tls -> reqwest 0.11.27). Upgrading requires
+    # reqwest 0.12, a major-version bump explicitly out of scope for this
+    # phase (semver-compatible fixes only). Tracked as follow-up work.
+    { id = "RUSTSEC-2026-0258", reason = "fix needs h2 >=0.4.16 via reqwest 0.12 (major bump); reqwest major upgrade deferred to a separate phase" },
+
+    # ringbuf 0.4.8 - RUSTSEC-2026-0293 (double free / use-after-free in
+    # Consumer::skip/clear when an element's Drop panics). Fix requires
+    # ringbuf >=0.5.2. ringbuf is a *direct* dependency pinned to "0.4.8" in
+    # frontend/src-tauri/Cargo.toml; 0.4 -> 0.5 changed its public API, so
+    # this is a real (if minor-looking) breaking upgrade, not a `cargo
+    # update` fix. Deferred: needs its own scoped task to bump the
+    # dependency and adapt call sites.
+    { id = "RUSTSEC-2026-0293", reason = "fix needs ringbuf 0.5.x (breaking API change from our pinned 0.4.8); deferred to a scoped follow-up, not a semver-compatible update" },
+
+    # atty 0.2.14 - RUSTSEC-2024-0375 (unmaintained) and RUSTSEC-2021-0145
+    # (unsound: potential unaligned read). atty has had no release since
+    # 2021 and is pulled in by clap 3.2.25 <- nnnoiseless 0.5.2 (our direct
+    # RNNoise denoising dependency), which itself has not moved off clap 3.
+    # nnnoiseless 0.5.2 is already the latest published version. No fix
+    # available without nnnoiseless switching its clap dependency upstream.
+    { id = "RUSTSEC-2024-0375", reason = "unmaintained, no newer release; pulled by nnnoiseless 0.5.2 (latest) -> clap 3.2.25, upstream has not moved off clap 3" },
+    { id = "RUSTSEC-2021-0145", reason = "unsound (unaligned read) but no fix upstream; same nnnoiseless -> clap 3 -> atty chain as RUSTSEC-2024-0375" },
+
+    # proc-macro-error 1.0.4 - RUSTSEC-2024-0370 (unmaintained). Only
+    # reachable via glib-macros -> glib -> gtk -> tray-icon, i.e. the Linux
+    # GTK tray-icon backend of tauri. Not compiled for aarch64-apple-darwin.
+    { id = "RUSTSEC-2024-0370", reason = "unmaintained, no fix; only reachable via the Linux GTK tray-icon backend (glib-macros), never compiled on macOS" },
+
+    # rustls-pemfile 1.0.4 - RUSTSEC-2025-0134 (unmaintained). Pulled by
+    # reqwest 0.11.27 directly; the maintained replacement is 2.x, which
+    # reqwest 0.11 does not support. Same reqwest-major-bump blocker as
+    # RUSTSEC-2026-0258 above.
+    { id = "RUSTSEC-2025-0134", reason = "unmaintained; reqwest 0.11 pins the 1.x line, maintained 2.x needs the deferred reqwest 0.12 bump" },
+
+    # unic-char-property / unic-char-range / unic-common / unic-ucd-ident /
+    # unic-ucd-version 0.9.0 - RUSTSEC-2025-0081/0075/0080/0100/0098
+    # (unmaintained). The `unic` crate family has had no release since 2020
+    # and is only reachable via urlpattern -> tauri-utils, i.e. tauri 2's
+    # own dependency tree. No newer version exists on crates.io; fixing
+    # requires tauri upstream to drop urlpattern/unic, out of our control.
+    { id = "RUSTSEC-2025-0081", reason = "unmaintained, no newer release; transitive dep of tauri-utils via urlpattern, not under our control" },
+    { id = "RUSTSEC-2025-0075", reason = "unmaintained, no newer release; transitive dep of tauri-utils via urlpattern, not under our control" },
+    { id = "RUSTSEC-2025-0080", reason = "unmaintained, no newer release; transitive dep of tauri-utils via urlpattern, not under our control" },
+    { id = "RUSTSEC-2025-0100", reason = "unmaintained, no newer release; transitive dep of tauri-utils via urlpattern, not under our control" },
+    { id = "RUSTSEC-2025-0098", reason = "unmaintained, no newer release; transitive dep of tauri-utils via urlpattern, not under our control" },
+
+    # glib 0.18.5 - RUSTSEC-2024-0429 (unsound VariantStrIter iterator
+    # impls). Fix needs glib >=0.20, which is only reachable through the
+    # tauri Linux GTK backend (atk -> gtk -> libappindicator -> tray-icon ->
+    # tauri). Never compiled for aarch64-apple-darwin.
+    { id = "RUSTSEC-2024-0429", reason = "unsound VariantStrIter, fix needs glib >=0.20; only reachable via the Linux GTK backend, never compiled on macOS" },
+]
+
+git-fetch-with-cli = false
+
+# ---------------------------------------------------------------------------
+# Licenses
+# https://embarkstudios.github.io/cargo-deny/checks/licenses/cfg.html
+#
+# Allow list is the exact set of SPDX identifiers returned by
+# `cargo deny list` against the current Cargo.lock (2026-09-25).
+# ---------------------------------------------------------------------------
+[licenses]
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "BlueOak-1.0.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.8
+exceptions = [
+    # r-efi 5.3.0 / 6.0.0 is LGPL-2.1-or-later. It is NOT a dynamically
+    # linked system-library wrapper: it's a pure-Rust crate of raw UEFI
+    # protocol/type definitions, generated from the UEFI spec, statically
+    # compiled when it *is* built. It is pulled in by getrandom 0.3/0.4
+    # only behind `cfg(target_os = "uefi")`
+    # (see getrandom's Cargo.toml / Cargo.lock: "r-efi" only appears as a
+    # dependency of getrandom, and `cargo tree -i r-efi -e normal` on
+    # aarch64-apple-darwin returns nothing - it is never compiled into any
+    # RECMeetily binary, which only targets aarch64-apple-darwin).
+    # Allowed here (scoped to this crate only, not the global allow list)
+    # because LGPL-2.1+ source obligations only bite crates we actually
+    # ship compiled code from; r-efi never is. Flagged for Felipe to
+    # re-review if a UEFI/Windows target is ever added.
+    { allow = ["LGPL-2.1-or-later"], crate = "r-efi" },
+]
+
+[licenses.private]
+ignore = false
+registries = []
+
+# ---------------------------------------------------------------------------
+# Bans
+# https://embarkstudios.github.io/cargo-deny/checks/bans/cfg.html
+# ---------------------------------------------------------------------------
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow = []
+allow-workspace = false
+deny = []
+
+skip = []
+skip-tree = []
+
+# ---------------------------------------------------------------------------
+# Sources
+# https://embarkstudios.github.io/cargo-deny/checks/sources/cfg.html
+# ---------------------------------------------------------------------------
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = [
+    # macOS AVFoundation/CoreMedia bindings; no crates.io release tracks the
+    # API surface we need (av feature), pinned to a rev.
+    "https://github.com/yury/cidre",
+    # Upstream ffmpeg-sidecar with fixes not yet released to crates.io;
+    # tracked on the main branch of the fork.
+    "https://github.com/nathanbabcock/ffmpeg-sidecar",
+    # Silero VAD bindings (emotechlab/silero-rs), pinned to a rev; not
+    # published to crates.io.
+    "https://github.com/emotechlab/silero-rs",
+    # cpal fork (patched via [patch.crates-io] in Cargo.toml) carrying
+    # macOS audio-capture fixes not yet released upstream.
+    "https://github.com/RustAudio/cpal",
+    # esaxx-rs fork (patched via [patch.crates-io] in Cargo.toml) with a
+    # dynamic-MSVC-link feature branch not published to crates.io.
+    "https://github.com/thewh1teagle/esaxx-rs.git",
+]
+
+[sources.allow-org]
+github = []
+gitlab = []
+bitbucket = []

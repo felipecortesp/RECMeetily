@@ -1,0 +1,41 @@
+# Config for `cargo audit` (RustSec). Mirrors the reasoning documented in
+# `deny.toml` [advisories.ignore]; kept in sync with that file. Unlike
+# cargo-deny, cargo-audit scans the raw Cargo.lock with no workspace/target
+# scoping, so it flags every advisory below even when the crate is never
+# actually compiled into a RECMeetily binary (macOS aarch64 only).
+[advisories]
+ignore = [
+    # rsa - Marvin Attack timing sidechannel, no fix upstream. Pulled only
+    # by sqlx's unused "mysql" feature (our sqlx only enables
+    # runtime-tokio/sqlite/chrono); never compiled on macOS.
+    "RUSTSEC-2023-0071",
+    # h2 - unbounded empty DATA frames. Fix needs h2 >=0.4.16 via reqwest
+    # 0.12; reqwest major bump deferred to a separate phase.
+    "RUSTSEC-2026-0258",
+    # ringbuf - double free / use-after-free when a Drop panics. Fix needs
+    # ringbuf 0.5.x, a breaking API change from our pinned 0.4.8; deferred
+    # to a scoped follow-up.
+    "RUSTSEC-2026-0293",
+    # atty - unmaintained + unsound (unaligned read). Pulled by nnnoiseless
+    # 0.5.2 (latest release) -> clap 3.2.25; upstream has not moved off
+    # clap 3, no fix available.
+    "RUSTSEC-2024-0375",
+    "RUSTSEC-2021-0145",
+    # proc-macro-error - unmaintained. Only reachable via the Linux GTK
+    # tray-icon backend (glib-macros); never compiled on macOS.
+    "RUSTSEC-2024-0370",
+    # rustls-pemfile - unmaintained. reqwest 0.11 pins the 1.x line; the
+    # maintained 2.x needs the deferred reqwest 0.12 bump.
+    "RUSTSEC-2025-0134",
+    # unic-char-property/char-range/common/ucd-ident/ucd-version -
+    # unmaintained, no release since 2020. Transitive dep of tauri-utils
+    # via urlpattern, not under our control.
+    "RUSTSEC-2025-0081",
+    "RUSTSEC-2025-0075",
+    "RUSTSEC-2025-0080",
+    "RUSTSEC-2025-0100",
+    "RUSTSEC-2025-0098",
+    # glib - unsound VariantStrIter iterator impls. Fix needs glib >=0.20;
+    # only reachable via the Linux GTK backend, never compiled on macOS.
+    "RUSTSEC-2024-0429",
+]
