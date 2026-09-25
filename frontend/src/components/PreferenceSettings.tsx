@@ -207,7 +207,7 @@ export function PreferenceSettings() {
       <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Data Storage Locations</h3>
         <p className="text-sm text-gray-600 mb-6">
-          View and access where Meetily stores your data
+          View and access where RECMeetily stores your data
         </p>
 
         <div className="space-y-4">
@@ -269,7 +269,7 @@ export function PreferenceSettings() {
 
         <div className="mt-4 p-3 bg-blue-50 rounded-md">
           <p className="text-xs text-blue-800">
-            <strong>Portable core data:</strong> Models, database, and templates use Meetily&apos;s app data
+            <strong>Portable core data:</strong> Models, database, and templates use RECMeetily&apos;s app data
             folder. Recordings stay in the user-facing folder shown above so they remain easy to find,
             play, and back up.
           </p>

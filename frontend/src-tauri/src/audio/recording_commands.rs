@@ -125,7 +125,7 @@ fn map_recording_start_error<R: Runtime>(app: &AppHandle<R>, error: anyhow::Erro
     crate::tray::update_tray_menu(app);
     if error.downcast_ref::<crate::onnx_runtime::InitializationError>().is_some() {
         log::error!("Transcription runtime startup failed: {error:#}");
-        format!("{}: Speech recognition could not initialize. Restart Meetily; if it continues, repair or reinstall the app.", crate::onnx_runtime::START_ERROR_CODE)
+        format!("{}: Speech recognition could not initialize. Restart RECMeetily; if it continues, repair or reinstall the app.", crate::onnx_runtime::START_ERROR_CODE)
     } else {
         format!("Failed to start recording: {error}")
     }

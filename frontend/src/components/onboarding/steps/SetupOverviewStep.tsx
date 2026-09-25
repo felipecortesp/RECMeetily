@@ -75,7 +75,7 @@ export function SetupOverviewStep() {
 
   const openIssues = () => {
     invoke('open_external_url', {
-      url: 'https://github.com/TylerBuza/Meetily-ActuallyFree',
+      url: 'https://github.com/felipecortesp/RECMeetily',
     }).catch((error) => console.error('Failed to open GitHub issues:', error));
   };
 
@@ -89,7 +89,7 @@ export function SetupOverviewStep() {
     if (!cudaStatus?.setupDownloadUrl) return;
     invoke('open_external_url', {
       url: cudaStatus.setupDownloadUrl,
-    }).catch((error) => console.error('Failed to open latest Meetily setup:', error));
+    }).catch((error) => console.error('Failed to open latest RECMeetily setup:', error));
   };
 
   const accelerationLabel = cudaStatus?.reconfigurationRequired
@@ -113,7 +113,7 @@ export function SetupOverviewStep() {
   return (
     <OnboardingContainer
       title="Setup Overview"
-      description="Meetily requires that you download the Transcription & Summarization AI models for the software to work."
+      description="RECMeetily requires that you download the Transcription & Summarization AI models for the software to work."
       step={2}
       totalSteps={isMac ? 4 : 3}
     >
@@ -188,12 +188,12 @@ export function SetupOverviewStep() {
                 </p>
                 <p className="mt-1 text-xs leading-5 text-amber-900">
                   {cudaStatus?.reconfigurationRequired
-                    ? `This installation is still using ${formatWhisperBackend(whisperBackend ?? 'CPU')}. Rerun the latest Meetily setup and it will select NVIDIA CUDA automatically.`
+                    ? `This installation is still using ${formatWhisperBackend(whisperBackend ?? 'CPU')}. Rerun the latest RECMeetily setup and it will select NVIDIA CUDA automatically.`
                     : cudaProbeFailed
-                      ? `Meetily could not read your NVIDIA driver details. Update or reinstall the driver, then recheck here.${cudaBuildInstalled ? '' : ' The current backend remains selected until setup is rerun.'}`
+                      ? `RECMeetily could not read your NVIDIA driver details. Update or reinstall the driver, then recheck here.${cudaBuildInstalled ? '' : ' The current backend remains selected until setup is rerun.'}`
                       : cudaBuildInstalled
                         ? 'This CUDA installation cannot use acceleration until NVIDIA driver 580.00 or newer is installed.'
-                        : 'Install NVIDIA driver 580.00 or newer to enable CUDA acceleration. Meetily will keep using its current fallback safely until you rerun setup.'}
+                        : 'Install NVIDIA driver 580.00 or newer to enable CUDA acceleration. RECMeetily will keep using its current fallback safely until you rerun setup.'}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button

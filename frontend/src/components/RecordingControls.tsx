@@ -193,7 +193,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
       } else if (errorMsg.includes('system audio') || errorMsg.includes('speaker') || errorMsg.includes('output')) {
         setDeviceError({
           title: 'System Audio Not Available',
-          message: 'Unable to capture system audio. On macOS, grant Meetily Audio Capture permission in Privacy & Security, play audio, and try again. On other platforms, verify the selected playback device.'
+          message: 'Unable to capture system audio. On macOS, grant RECMeetily Audio Capture permission in Privacy & Security, play audio, and try again. On other platforms, verify the selected playback device.'
         });
       } else if (errorMsg.includes('permission')) {
         setDeviceError({
@@ -683,7 +683,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                                 You’re recording
                               </div>
                               <p className="mt-1 text-xs leading-relaxed text-[var(--af-text-2)]">
-                                Tuck Meetily into a compact floating bar so it stays out of your way — expand it again anytime.
+                                Tuck RECMeetily into a compact floating bar so it stays out of your way — expand it again anytime.
                               </p>
                               <button
                                 type="button"

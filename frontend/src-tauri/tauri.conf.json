@@ -1,8 +1,8 @@
 {
     "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-    "productName": "Meetily - Actually Free",
-    "version": "0.2.16",
-    "identifier": "dev.felipecortes.meetily-actuallyfree",
+    "productName": "RECMeetily",
+    "version": "0.3.0",
+    "identifier": "dev.felipecortes.recmeetily",
     "build": {
         "frontendDist": "../out",
         "devUrl": "http://localhost:3118",
@@ -12,7 +12,7 @@
     "app": {
         "windows": [
             {
-                "title": "Meetily - Actually Free",
+                "title": "RECMeetily",
                 "width": 1100,
                 "height": 700,
                 "center": true,

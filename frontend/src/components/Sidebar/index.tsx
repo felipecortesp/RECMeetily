@@ -3,7 +3,7 @@
 /**
  * Primary left navigation sidebar.
  *
- * Layout (top → bottom): brand ("Meetily · Actually Free", see Logo.tsx),
+ * Layout (top → bottom): brand ("RECMeetily", see Logo.tsx),
  * a global-search trigger (Ctrl/Cmd+K), a teal "New Recording" action, a "RECENT MEETINGS"
  * list (dot + title + date-subtitle from `created_at`, with a "View all
  * library" toggle capped by RECENT_LIMIT), and a Settings-only footer.
