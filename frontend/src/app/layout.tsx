@@ -5,7 +5,6 @@ import { Source_Sans_3 } from 'next/font/google'
 import Sidebar from '@/components/Sidebar'
 import { SidebarProvider } from '@/components/Sidebar/SidebarProvider'
 import MainContent from '@/components/MainContent'
-import AnalyticsProvider from '@/components/AnalyticsProvider'
 import { Toaster, toast } from 'sonner'
 import "sonner/dist/styles.css"
 import { useState, useEffect, useCallback } from 'react'
@@ -21,7 +20,6 @@ import { OnboardingProvider } from '@/contexts/OnboardingContext'
 import { OnboardingFlow } from '@/components/onboarding'
 import { loadBetaFeatures } from '@/types/betaFeatures'
 import { DownloadProgressToastProvider } from '@/components/shared/DownloadProgressToast'
-import { UpdateCheckProvider } from '@/components/UpdateCheckProvider'
 import { RecordingPostProcessingProvider } from '@/contexts/RecordingPostProcessingProvider'
 import { ImportAudioDialog, ImportDropOverlay } from '@/components/ImportAudio'
 import { ImportDialogProvider } from '@/contexts/ImportDialogContext'
@@ -374,48 +372,44 @@ export default function RootLayout({
             />
           </>
         ) : (
-          <AnalyticsProvider>
-            <RecordingStateProvider>
-              <TranscriptProvider>
-                <ConfigProvider>
-                  <OllamaDownloadProvider>
-                    <OnboardingProvider>
-                      <SidebarProvider>
-                        <TooltipProvider>
-                          <RecordingPostProcessingProvider>
-                            <UpdateCheckProvider onboardingCompleted={onboardingCompleted}>
-                              {onboardingCompleted && !showOnboarding && <GlobalSearchDialog />}
-                              <ImportDialogProvider onOpen={handleOpenImportDialog}>
-                                {/* Download progress toast provider - listens for background downloads */}
-                                <DownloadProgressToastProvider />
+          <RecordingStateProvider>
+            <TranscriptProvider>
+              <ConfigProvider>
+                <OllamaDownloadProvider>
+                  <OnboardingProvider>
+                    <SidebarProvider>
+                      <TooltipProvider>
+                        <RecordingPostProcessingProvider>
+                          {onboardingCompleted && !showOnboarding && <GlobalSearchDialog />}
+                          <ImportDialogProvider onOpen={handleOpenImportDialog}>
+                            {/* Download progress toast provider - listens for background downloads */}
+                            <DownloadProgressToastProvider />
 
-                                {/* Show onboarding or main app */}
-                                {showOnboarding ? (
-                                  <OnboardingFlow onComplete={handleOnboardingComplete} />
-                                ) : (
-                                  <div className="flex min-h-0 min-w-0 h-screen overflow-hidden">
-                                    <Sidebar />
-                                    <MainContent>{children}</MainContent>
-                                  </div>
-                                )}
-                                {/* Import audio overlay and dialog */}
-                                <ImportDropOverlay visible={showDropOverlay} />
-                                <ConditionalImportDialog
-                                  showImportDialog={showImportDialog}
-                                  handleImportDialogClose={handleImportDialogClose}
-                                  importFilePath={importFilePath}
-                                />
-                              </ImportDialogProvider>
-                            </UpdateCheckProvider>
-                          </RecordingPostProcessingProvider>
-                        </TooltipProvider>
-                      </SidebarProvider>
-                    </OnboardingProvider>
-                  </OllamaDownloadProvider>
-                </ConfigProvider>
-              </TranscriptProvider>
-            </RecordingStateProvider>
-          </AnalyticsProvider>
+                            {/* Show onboarding or main app */}
+                            {showOnboarding ? (
+                              <OnboardingFlow onComplete={handleOnboardingComplete} />
+                            ) : (
+                              <div className="flex min-h-0 min-w-0 h-screen overflow-hidden">
+                                <Sidebar />
+                                <MainContent>{children}</MainContent>
+                              </div>
+                            )}
+                            {/* Import audio overlay and dialog */}
+                            <ImportDropOverlay visible={showDropOverlay} />
+                            <ConditionalImportDialog
+                              showImportDialog={showImportDialog}
+                              handleImportDialogClose={handleImportDialogClose}
+                              importFilePath={importFilePath}
+                            />
+                          </ImportDialogProvider>
+                        </RecordingPostProcessingProvider>
+                      </TooltipProvider>
+                    </SidebarProvider>
+                  </OnboardingProvider>
+                </OllamaDownloadProvider>
+              </ConfigProvider>
+            </TranscriptProvider>
+          </RecordingStateProvider>
         )}
 
         <Toaster position="bottom-center" theme="dark" richColors closeButton />

@@ -2,43 +2,18 @@ import React, { useState, useEffect } from "react";
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import Image from 'next/image';
-import { UpdateDialog } from "./UpdateDialog";
-import { updateService, UpdateInfo } from '@/services/updateService';
 import { Button } from './ui/button';
-import { Loader2, CheckCircle2 } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { usePlatform } from '@/hooks/usePlatform';
 
 
 export function About() {
-    const platform = usePlatform();
     const [currentVersion, setCurrentVersion] = useState<string>('0.0.1');
-    const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
-    const [isChecking, setIsChecking] = useState(false);
-    const [showUpdateDialog, setShowUpdateDialog] = useState(false);
 
     useEffect(() => {
         // Get current version on mount
         getVersion().then(setCurrentVersion).catch(console.error);
     }, []);
-
-    const handleCheckForUpdates = async () => {
-        setIsChecking(true);
-        try {
-            const info = await updateService.checkForUpdates(true);
-            setUpdateInfo(info);
-            if (info.available) {
-                setShowUpdateDialog(true);
-            } else {
-                toast.success('You are running the latest version');
-            }
-        } catch (error: any) {
-            console.error('Failed to check for updates:', error);
-            toast.error('Failed to check for updates: ' + (error.message || 'Unknown error'));
-        } finally {
-            setIsChecking(false);
-        }
-    };
 
     const openExternal = (url: string) => {
         invoke('open_external_url', { url }).catch((error) => {
@@ -66,42 +41,15 @@ export function About() {
                     Real-time notes and summaries that never leave your machine.
                 </p>
                 <div className="mt-3">
-                    {platform === 'macos' ? (
-                        <Button
-                            onClick={() => openExternal('https://github.com/TylerBuza/Meetily-ActuallyFree/releases')}
-                            variant="outline"
-                            size="sm"
-                            className="text-xs"
-                        >
-                            <CheckCircle2 className="h-3 w-3 mr-2" />
-                            View macOS Releases
-                        </Button>
-                    ) : (
-                        <Button
-                            onClick={handleCheckForUpdates}
-                            disabled={isChecking}
-                            variant="outline"
-                            size="sm"
-                            className="text-xs"
-                        >
-                            {isChecking ? (
-                                <>
-                                    <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                                    Checking...
-                                </>
-                            ) : (
-                                <>
-                                    <CheckCircle2 className="h-3 w-3 mr-2" />
-                                    Check for Updates
-                                </>
-                            )}
-                        </Button>
-                    )}
-                    {updateInfo?.available && (
-                        <div className="mt-2 text-xs text-blue-600">
-                            Update available: v{updateInfo.version}
-                        </div>
-                    )}
+                    <Button
+                        onClick={() => openExternal('https://github.com/TylerBuza/Meetily-ActuallyFree/releases')}
+                        variant="outline"
+                        size="sm"
+                        className="text-xs"
+                    >
+                        <CheckCircle2 className="h-3 w-3 mr-2" />
+                        View macOS Releases
+                    </Button>
                 </div>
             </div>
 
@@ -152,13 +100,6 @@ export function About() {
                     </button>
                 </p>
             </div>
-
-            {/* Update Dialog */}
-            <UpdateDialog
-                open={showUpdateDialog}
-                onOpenChange={setShowUpdateDialog}
-                updateInfo={updateInfo}
-            />
         </div>
 
     )
