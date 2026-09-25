@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="260" viewBox="0 0 1200 260">
+  <!-- RECMeetily wordmark: app icon + "REC" (red) + "Meetily" (dark navy).
+       This mark is only used for docs/README assets (transparent PNG shown
+       on GitHub's normally light page background), never inside the app -
+       Logo.tsx in the sidebar uses the plain square icon (logo-collapsed.png),
+       not this wordmark, and the app UI itself is always in dark mode (see
+       frontend/src/app/globals.css, dark theme, af panel token). If this
+       wordmark is ever placed on a dark surface, swap the "Meetily" tspan
+       fill to #FFFFFF instead. -->
+  <image href="icon-source.png" x="20" y="20" width="220" height="220" />
+  <text x="270" y="178" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="700" font-size="150" letter-spacing="-2">
+    <tspan fill="#E5484D">REC</tspan><tspan fill="#1B2432">Meetily</tspan>
+  </text>
+</svg>
