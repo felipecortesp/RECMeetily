@@ -50,7 +50,7 @@ impl Default for MeetingDetectionSettings {
 }
 
 /// Default keyword list. Deliberately excludes bare "meet" to avoid matching
-/// this app's own process ("meetily") and unrelated software.
+/// this app's own process ("recmeetily") and unrelated software.
 fn default_meeting_apps() -> Vec<String> {
     [
         "zoom",
@@ -134,10 +134,13 @@ struct MeetingDetectedPayload {
     notify: bool,
 }
 
-/// True for our own process — never treat Meetily as a "meeting app".
+/// True for our own process ("recmeetily") or the upstream fork we descend
+/// from ("Meetily" / "Meetily - Actually Free") — never treat either as a
+/// "meeting app". `"meetily"` is a substring of `"recmeetily"`, so a single
+/// check covers both; the explicit `"recmeetily"` check is kept for clarity.
 fn is_self_process(name: &str) -> bool {
     let n = name.to_lowercase();
-    n.contains("meetily") || n.contains("meetily-actually")
+    n.contains("meetily") || n.contains("recmeetily") || n.contains("meetily-actually")
 }
 
 /// Scan the process list once and, if a (non-ignored) meeting app is present,
@@ -244,6 +247,8 @@ mod tests {
     #[test]
     fn never_treats_meetily_as_a_meeting() {
         assert!(is_self_process("meetily.exe"));
+        assert!(is_self_process("recmeetily.exe"));
+        assert!(is_self_process("RECMeetily.exe"));
         assert!(is_self_process("Meetily - Actually Free.exe"));
         assert!(!is_self_process("ms-teams.exe"));
     }

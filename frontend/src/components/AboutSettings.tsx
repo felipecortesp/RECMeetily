@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { Github, Shield, Cpu, Heart } from "lucide-react"
 
 /**
- * About panel for Meetily - Actually Free. Shows version, a short description,
+ * About panel for RECMeetily. Shows version, a short description,
  * and links to the source and privacy policy. Purely informational.
  */
 export function AboutSettings() {
@@ -26,9 +26,10 @@ export function AboutSettings() {
     invoke('open_external_url', { url }).catch((e) => console.error('Failed to open URL:', e));
   };
 
-  const REPO_URL = 'https://github.com/TylerBuza/Meetily-ActuallyFree';
+  const REPO_URL = 'https://github.com/felipecortesp/RECMeetily';
+  const UPSTREAM_FORK_URL = 'https://github.com/TylerBuza/Meetily-ActuallyFree';
   const ORIGINAL_MEETILY_URL = 'https://github.com/Zackriya-Solutions/meeting-minutes';
-  const AUTHOR_URL = 'https://buza.dev';
+  const AUTHOR_URL = 'https://github.com/felipecortesp/RECMeetily';
 
   return (
     <div className="space-y-6">
@@ -36,19 +37,19 @@ export function AboutSettings() {
       <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
         <div className="flex items-center gap-4">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 text-white text-2xl font-bold shadow-sm">
-            M
+            R
           </div>
           <div>
-            <h3 className="text-xl font-semibold text-gray-900">Meetily · Actually Free</h3>
+            <h3 className="text-xl font-semibold text-gray-900">RECMeetily</h3>
             <p className="text-sm text-gray-600">
               Version {version} · Privacy-first, on-device meeting assistant
             </p>
           </div>
         </div>
         <p className="mt-4 text-sm text-gray-600 leading-relaxed">
-          A free, open fork of Meetily that unlocks every feature for everyone. It captures,
-          transcribes and summarizes your meetings entirely on your own machine — with GPU
-          acceleration, bring-your-own-key cloud models, and local-first data ownership.
+          RECMeetily is a privacy-first fork of Meetily that keeps every feature unlocked. It
+          captures, transcribes and summarizes your meetings entirely on your own machine — with
+          GPU acceleration, bring-your-own-key cloud models, and local-first data ownership.
         </p>
       </div>
 
@@ -92,23 +93,32 @@ export function AboutSettings() {
 
       <div className="text-center text-xs text-gray-400 space-y-1">
         <p>
-          Built on the{" "}
+          Based on{" "}
           <button
             type="button"
             onClick={() => openUrl(ORIGINAL_MEETILY_URL)}
             className="text-blue-500 hover:underline"
           >
-            open-source Meetily project
+            Meetily by Zackriya Solutions
           </button>{" "}
-          · MIT licensed
+          and{" "}
+          <button
+            type="button"
+            onClick={() => openUrl(UPSTREAM_FORK_URL)}
+            className="text-blue-500 hover:underline"
+          >
+            Meetily - Actually Free by Tyler Buza
+          </button>
+          {" "}· MIT licensed
         </p>
         <p>
+          Maintained by{" "}
           <button
             type="button"
             onClick={() => openUrl(AUTHOR_URL)}
             className="text-blue-500 hover:underline"
           >
-            Meetily - Actually Free fork by Tyler Buza
+            Felipe Cortes
           </button>
         </p>
       </div>

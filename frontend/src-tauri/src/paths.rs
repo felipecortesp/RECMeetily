@@ -1,6 +1,6 @@
 //! Platform-safe local path resolution.
 //!
-//! macOS always uses `~/Library/Application Support/Meetily` because its
+//! macOS always uses `~/Library/Application Support/RECMeetily` because its
 //! executable lives inside the signed app bundle; writing runtime data there
 //! invalidates the bundle signature.
 
@@ -8,7 +8,12 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 /// Folder name used under the OS data directory.
-const FALLBACK_APP_NAME: &str = "Meetily";
+const FALLBACK_APP_NAME: &str = "RECMeetily";
+
+/// Folder name used by the previous fork ("Meetily - Actually Free") under
+/// the OS data directory. Kept as a fixed legacy source so users upgrading
+/// from that fork don't lose models or meeting history.
+const LEGACY_FORK_APP_NAME: &str = "Meetily";
 
 static ROOT: OnceLock<PathBuf> = OnceLock::new();
 
@@ -46,12 +51,15 @@ pub fn models_dir() -> PathBuf {
 /// One-time, non-destructive migration of a previous (scattered) install.
 ///
 /// Earlier builds stored data under the OS application-data directory
-/// (`%APPDATA%\<id>` / `~/Library/Application Support/<id>`). To honor the
-/// current layout without forcing users to re-download gigabytes of models or
-/// lose meeting history, on first run we COPY the known legacy items into the
-/// current data root. The original files are left
-/// untouched (users can delete the old folder afterward). Guarded by a marker
-/// file so it only ever runs once, and best-effort so it can never break start.
+/// (`%APPDATA%\<id>` / `~/Library/Application Support/<id>`), and the fork
+/// this app descends from ("Meetily - Actually Free") stored it under a
+/// fixed `Meetily` folder. To honor the current layout without forcing users
+/// to re-download gigabytes of models or lose meeting history, on first run
+/// we COPY the known legacy items from each source that exists into the
+/// current data root. The original files are left untouched (users can
+/// delete the old folders afterward). Guarded by a marker file so it only
+/// ever runs once (written after all sources are processed), and best-effort
+/// so it can never break start.
 pub fn migrate_legacy_data<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     use tauri::Manager;
 
@@ -61,25 +69,57 @@ pub fn migrate_legacy_data<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
         return;
     }
 
-    // The legacy OS app-data directory (what old builds used).
-    let legacy = match app.path().app_data_dir() {
-        Ok(p) => p,
-        Err(_) => {
-            let _ = std::fs::write(&marker, b"no-legacy");
-            return;
-        }
-    };
+    // Legacy sources to check, in order. Each is only used if it exists and
+    // differs from the current root.
+    let mut sources: Vec<(&'static str, PathBuf)> = Vec::new();
 
-    if legacy == root || !legacy.exists() {
-        let _ = std::fs::write(&marker, b"no-legacy");
-        return;
+    // 1. The legacy OS app-data directory (what old builds of this app used).
+    if let Ok(p) = app.path().app_data_dir() {
+        sources.push(("Tauri app_data_dir", p));
     }
 
-    log::info!(
-        "🚚 Portable migration: checking legacy data at {}",
-        legacy.display()
-    );
+    // 2. The fixed folder used by the previous fork ("Meetily - Actually
+    // Free"), resolved the same way `os_data_root()` resolves this app's
+    // own root.
+    let legacy_fork_root = dirs::data_dir()
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(LEGACY_FORK_APP_NAME);
+    sources.push(("previous fork (Meetily)", legacy_fork_root));
 
+    let mut copied_any = false;
+    let mut seen: Vec<PathBuf> = Vec::new();
+
+    for (label, legacy) in sources {
+        if legacy == root || !legacy.exists() || seen.contains(&legacy) {
+            continue;
+        }
+        seen.push(legacy.clone());
+
+        log::info!(
+            "🚚 Portable migration: checking legacy data at {} (source: {})",
+            legacy.display(),
+            label
+        );
+
+        if migrate_from(&legacy, &root) {
+            copied_any = true;
+        }
+    }
+
+    if copied_any {
+        log::info!("✅ Portable migration complete. You can delete the old folder(s) once you've confirmed everything is there.");
+    } else {
+        log::info!("Portable migration: nothing to migrate.");
+    }
+
+    let _ = std::fs::write(&marker, b"done");
+}
+
+/// Copies the known app-managed items from `legacy` into `root`. Only copies
+/// items that are missing locally, so re-running (marker deleted) never
+/// clobbers newer local data. Returns whether anything was copied.
+fn migrate_from(legacy: &std::path::Path, root: &std::path::Path) -> bool {
     // Known app-managed items. Only copied when missing locally, so re-running
     // (marker deleted) never clobbers newer local data.
     const ITEMS: [&str; 6] = [
@@ -103,14 +143,7 @@ pub fn migrate_legacy_data<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
             }
         }
     }
-
-    if copied_any {
-        log::info!("✅ Portable migration complete. You can delete the old folder: {}", legacy.display());
-    } else {
-        log::info!("Portable migration: nothing to migrate.");
-    }
-
-    let _ = std::fs::write(&marker, b"done");
+    copied_any
 }
 
 /// Recursively copy a file or directory. Best-effort: per-entry failures are

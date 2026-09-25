@@ -98,7 +98,7 @@ export function PermissionWarning({
             {!hasMicrophone && (
               <>
                 <p className="mb-3">
-                  Meetily needs access to your microphone to record meetings. No microphone devices were detected.
+                  RECMeetily needs access to your microphone to record meetings. No microphone devices were detected.
                 </p>
                 <div className="space-y-2 text-sm mb-4">
                   <p className="font-medium">Please check:</p>
@@ -123,9 +123,9 @@ export function PermissionWarning({
                   <div className="space-y-2 text-sm mb-4">
                     <p className="font-medium">To enable system audio on macOS:</p>
                     <ul className="list-disc list-inside ml-2 space-y-1">
-                      <li>Grant Audio Capture permission to Meetily</li>
+                      <li>Grant Audio Capture permission to RECMeetily</li>
                       <li>Play audio and use Recheck to verify the native capture tap</li>
-                      <li>Restart Meetily after changing permission if capture remains silent</li>
+                      <li>Restart RECMeetily after changing permission if capture remains silent</li>
                     </ul>
                   </div>
                 )}

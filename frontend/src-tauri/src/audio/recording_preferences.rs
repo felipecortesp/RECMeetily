@@ -6,7 +6,7 @@
 //!
 //! | OS      | Default location                                  |
 //! |---------|---------------------------------------------------|
-//! | macOS   | `~/Movies/meetily-recordings`                      |
+//! | macOS   | `~/Movies/recmeetily-recordings`                   |
 //!
 //! Layout is `<folder>/<sanitized meeting name>/audio.mp4`, alongside
 //! `metadata.json` and `transcripts.json`.
@@ -95,16 +95,25 @@ impl Default for RecordingPreferences {
     }
 }
 
-/// Get the default recordings folder based on platform
+/// Get the default recordings folder based on platform.
+///
+/// The default is the new `recmeetily-recordings` folder. If that folder
+/// does not exist yet but the previous fork's `meetily-recordings` folder
+/// (in the same parent) does, we keep reading from the old folder so
+/// existing users don't "lose" recordings they already made.
 pub fn get_default_recordings_folder() -> PathBuf {
-    // macOS: ~/Movies/meetily-recordings
-    if let Some(movies_dir) = dirs::video_dir() {
-        movies_dir.join("meetily-recordings")
-    } else {
+    // macOS: ~/Movies/recmeetily-recordings
+    let base_dir = dirs::video_dir()
         // Fallback to Documents if Movies folder is not available
-        dirs::document_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("meetily-recordings")
+        .or_else(dirs::document_dir)
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    let new_path = base_dir.join("recmeetily-recordings");
+    let old_path = base_dir.join("meetily-recordings");
+    if !new_path.exists() && old_path.exists() {
+        old_path
+    } else {
+        new_path
     }
 }
 
@@ -184,7 +193,7 @@ fn reject_path_inside_bundle(path: &Path, bundle_root: &Path) -> Result<()> {
 
     if candidate == bundle || candidate.starts_with(&bundle) {
         return Err(anyhow!(
-            "The recordings folder cannot be inside the Meetily app bundle. Choose a folder in Movies, Music, Documents, or another writable location."
+            "The recordings folder cannot be inside the RECMeetily app bundle. Choose a folder in Movies, Music, Documents, or another writable location."
         ));
     }
 
@@ -530,7 +539,7 @@ mod tests {
             "meetily-recording-path-test-{}-{unique}",
             std::process::id()
         ));
-        let bundle = root.join("Meetily.app");
+        let bundle = root.join("RECMeetily.app");
         let sibling = root.join("recordings");
         std::fs::create_dir_all(&bundle).unwrap();
 
@@ -553,7 +562,7 @@ mod tests {
             "meetily-recording-symlink-test-{}-{unique}",
             std::process::id()
         ));
-        let bundle = root.join("Meetily.app");
+        let bundle = root.join("RECMeetily.app");
         let executable_dir = bundle.join("Contents/MacOS");
         let link = root.join("app-executable-dir");
         std::fs::create_dir_all(&executable_dir).unwrap();

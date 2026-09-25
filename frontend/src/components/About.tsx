@@ -29,20 +29,20 @@ export function About() {
                 <div className="mb-3">
                     <Image
                         src="icon_128x128.png"
-                        alt="Meetily Logo"
+                        alt="RECMeetily Logo"
                         width={64}
                         height={64}
                         className="mx-auto"
                     />
                 </div>
-                {/* <h1 className="text-xl font-bold text-gray-900">Meetily</h1> */}
+                {/* <h1 className="text-xl font-bold text-gray-900">RECMeetily</h1> */}
                 <span className="text-sm text-gray-500"> v{currentVersion}</span>
                 <p className="text-medium text-gray-600 mt-1">
                     Real-time notes and summaries that never leave your machine.
                 </p>
                 <div className="mt-3">
                     <Button
-                        onClick={() => openExternal('https://github.com/TylerBuza/Meetily-ActuallyFree/releases')}
+                        onClick={() => openExternal('https://github.com/felipecortesp/RECMeetily/releases')}
                         variant="outline"
                         size="sm"
                         className="text-xs"
@@ -55,7 +55,7 @@ export function About() {
 
             {/* Features Grid - Compact */}
             <div className="space-y-3">
-                <h2 className="text-base font-semibold text-gray-800">What makes Meetily different</h2>
+                <h2 className="text-base font-semibold text-gray-800">What makes RECMeetily different</h2>
                 <div className="grid grid-cols-2 gap-2">
                     <div className="bg-gray-50 rounded p-3 hover:bg-gray-100 transition-colors">
                         <h3 className="font-bold text-sm text-gray-900 mb-1">Privacy-first</h3>
@@ -79,24 +79,35 @@ export function About() {
             {/* Footer - Compact */}
             <div className="pt-2 border-t border-gray-200 text-center">
                 <p className="text-xs text-gray-400">
-                    Meetily - Actually Free · Open source (MIT)
+                    RECMeetily · Open source (MIT)
                 </p>
                 <p className="mt-1 text-xs text-gray-500">
-                    Tyler Buza ·{' '}
+                    Based on{' '}
                     <button
                         type="button"
                         className="underline underline-offset-2 transition-colors hover:text-blue-500"
-                        onClick={() => openExternal('https://github.com/TylerBuza')}
+                        onClick={() => openExternal('https://github.com/Zackriya-Solutions/meeting-minutes')}
+                    >
+                        Meetily
+                    </button>
+                    {' '}by Zackriya Solutions and{' '}
+                    <button
+                        type="button"
+                        className="underline underline-offset-2 transition-colors hover:text-blue-500"
+                        onClick={() => openExternal('https://github.com/TylerBuza/Meetily-ActuallyFree')}
+                    >
+                        Meetily - Actually Free
+                    </button>
+                    {' '}by Tyler Buza
+                </p>
+                <p className="mt-1 text-xs text-gray-500">
+                    Maintained by Felipe Cortes ·{' '}
+                    <button
+                        type="button"
+                        className="underline underline-offset-2 transition-colors hover:text-blue-500"
+                        onClick={() => openExternal('https://github.com/felipecortesp/RECMeetily')}
                     >
                         GitHub
-                    </button>
-                    {' '}·{' '}
-                    <button
-                        type="button"
-                        className="underline underline-offset-2 transition-colors hover:text-blue-500"
-                        onClick={() => openExternal('https://buza.dev')}
-                    >
-                        buza.dev
                     </button>
                 </p>
             </div>

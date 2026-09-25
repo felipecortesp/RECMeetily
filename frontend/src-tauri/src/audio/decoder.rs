@@ -290,7 +290,7 @@ fn convert_to_wav_with_ffmpeg(
 
     // Imported media may live in a read-only directory; conversion needs no rename.
     let temp_file = tempfile::Builder::new()
-        .prefix(".meetily_decode_")
+        .prefix(".recmeetily_decode_")
         .suffix(".wav")
         .tempfile()
         .map_err(|e| anyhow!("Failed to create temporary WAV file: {}", e))?;

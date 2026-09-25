@@ -66,7 +66,7 @@ export function useRecordingStart(
     try {
       await invoke('check_transcription_runtime');
     } catch (error) {
-      const message = transcriptionRuntimeMessage(error) || 'Could not check the speech runtime. Restart Meetily and try again.';
+      const message = transcriptionRuntimeMessage(error) || 'Could not check the speech runtime. Restart RECMeetily and try again.';
       runtimeErrorRef.current = message;
       toast.error('Speech recognition unavailable', { description: message });
       return false;

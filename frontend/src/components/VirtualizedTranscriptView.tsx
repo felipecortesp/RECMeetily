@@ -451,7 +451,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                     ) : (
                         <>
                             <p className="text-lg font-semibold">
-                                {userName ? `Welcome back, ${userName}!` : 'Welcome to Meetily · Actually Free'}
+                                {userName ? `Welcome back, ${userName}!` : 'Welcome to RECMeetily'}
                             </p>
                             <p className="text-xs mt-1">Start recording to see live transcription</p>
                         </>
