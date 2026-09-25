@@ -42,7 +42,7 @@ RECMeetily grew out of Meetily - Actually Free to deliver a macOS-focused privac
 
 1. Download the DMG from the [latest release](https://github.com/felipecortesp/RECMeetily/releases).
 2. Open the DMG and drag **RECMeetily** to Applications.
-3. Control-click the app and select **Open** on first launch (the build is not Apple-notarized).
+3. The build is not Apple-notarized, so macOS blocks the first launch. Click Done, open System Settings > Privacy & Security, scroll to the Security section and click **Open Anyway** next to the RECMeetily message, then launch it again. (Alternative in Terminal: `xattr -dr com.apple.quarantine /Applications/RECMeetily.app`.)
 4. Grant Microphone and System Audio Recording permissions when prompted.
 
 ## Permissions
