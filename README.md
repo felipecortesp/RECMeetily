@@ -40,19 +40,40 @@ RECMeetily grew out of Meetily - Actually Free to deliver a macOS-focused privac
 
 ## Install
 
-1. Download the DMG from the [latest release](https://github.com/felipecortesp/RECMeetily/releases).
-2. Open the DMG and drag **RECMeetily** to Applications.
-3. The build is not Apple-notarized, so macOS blocks the first launch. Click Done, open System Settings > Privacy & Security, scroll to the Security section and click **Open Anyway** next to the RECMeetily message, then launch it again. (Alternative in Terminal: `xattr -dr com.apple.quarantine /Applications/RECMeetily.app`.)
-4. Grant Microphone and System Audio Recording permissions when prompted.
+RECMeetily is distributed as a DMG on the [releases page](https://github.com/felipecortesp/RECMeetily/releases). Installation takes a few extra steps compared with an App Store app, for one reason: **the build is not signed or notarized by Apple.** Notarization requires a paid Apple Developer account, and this project does not have one. macOS therefore treats the app as unverified the first time it runs. Everything below can be done by any user without administrator tools; if you prefer, you can also [build the app from source](#build-from-source) on your own Mac, in which case macOS does not block it at all.
 
-## Permissions
+### 1. Copy the app to Applications
 
-RECMeetily requests:
+1. Download `RECMeetily_<version>_aarch64.dmg` and double-click it.
+2. The DMG window shows only `RECMeetily.app`. Open a second Finder window on Applications (press Cmd+Shift+A) and drag `RECMeetily.app` into it. Opening the app directly from the DMG window does not install it.
+3. Eject the DMG (the RECMeetily disk in the Finder sidebar).
 
-- **Microphone:** Captures local audio from the default input device.
-- **System Audio Recording:** Captures audio from the system output using Core Audio process tap (no bot joins the call, no virtual drivers).
+### 2. Allow the first launch (Gatekeeper)
 
-No camera, screen capture, location, contacts, or calendar permissions are needed or requested.
+1. Open RECMeetily from Launchpad or Spotlight. macOS shows "RECMeetily.app Not Opened: Apple could not verify..." Click **Done**.
+2. Open **System Settings > Privacy & Security**, scroll down to the **Security** section. Next to the message about RECMeetily, click **Open Anyway** and confirm with your password or Touch ID.
+3. Open RECMeetily again. macOS asks one last time; confirm. This happens only once per version.
+
+Terminal alternative, same result: `xattr -dr com.apple.quarantine /Applications/RECMeetily.app`.
+
+### 3. First launch
+
+On a fresh Mac the app shows a short setup that downloads the transcription model (Parakeet, about 670 MB) and the summary model (Qwen 3.5 4B, about 2.6 GB) from Hugging Face. Downloads are verified against SHA-256 hashes embedded in the app. If you previously used Meetily - Actually Free, its models and meetings are copied over automatically and the setup is skipped.
+
+### 4. Permissions
+
+RECMeetily needs two permissions, both asked on first use:
+
+- **Microphone**: macOS shows a standard prompt; click Allow.
+- **System Audio Recording** (to hear the other participants): if the app shows the banner "System Audio Permission Required", click **Open Audio Capture Settings**. macOS opens **System Settings > Privacy & Security > Screen & System Audio Recording**. In the **System Audio Recording Only** list, switch on **RECMeetily**. If it is not listed, click **+** and pick it from Applications.
+- Then **quit RECMeetily completely (Cmd+Q) and open it again**: the permission is read only at launch.
+- Play any audio (a video in the browser is enough) and click **Recheck** in the banner. The "System audio" indicator in the recording bar turns green.
+
+No camera, screen content, location, contacts or calendar permissions are requested.
+
+### Updating
+
+Install the new DMG the same way; it replaces the app in Applications. Your meetings, settings and models are kept. Because each build is signed locally, macOS may ask again for the Open Anyway step and, occasionally, for the two permissions.
 
 ## Local Data
 
