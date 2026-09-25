@@ -1,149 +1,128 @@
-# Meetily - Actually Free
+# RECMeetily
 
 <p align="center">
-  <img src="frontend/src-tauri/icon-source.png" alt="Meetily - Actually Free logo" width="240" />
+  <img src="docs/images/recmeetily-logo.png" alt="RECMeetily logo" width="480" />
 </p>
 
-An entirely free, fully unlocked fork of [Meetily](https://github.com/Zackriya-Solutions/meetily). Every feature is available without an account, subscription, license key, trial, or paid tier.
+A privacy-hardened, fully local meeting recorder for macOS Apple Silicon. Records meetings from the microphone and system audio (via Core Audio process tap) without bots or virtual drivers. Microphone and system audio are kept as separate tracks; microphone speech is labelled "You" and remote voices become "Speaker N" via on-device diarization. Transcription with Parakeet (25 European languages, automatic switching) or whisper.cpp (via Metal/CoreML). Local LLM summaries via bundled llama.cpp sidecar or your chosen cloud provider.
 
-[Download for Windows](https://github.com/TylerBuza/Meetily-ActuallyFree/releases/latest) · [Download for macOS Apple Silicon](https://github.com/TylerBuza/Meetily-ActuallyFree/releases/tag/v0.2.5-macos)
+## Why This Fork
 
-This fork also goes beyond removing feature restrictions. It adds speaker identity, separate mic and system audio, automatic meeting detection, people profiles, richer exports, a redesigned interface, dedicated Windows and Apple Silicon installers, and numerous recording and reliability improvements.
+RECMeetily grew out of Meetily - Actually Free to deliver a macOS-focused privacy-hardened recorder:
 
-## Interface
+- **No telemetry, no updater, no network exposure:** The app never contacts GitHub or any cloud service unless you explicitly add an API key. No auto-updater; no analytics module.
+- **Hash-verified downloads:** Every model and binary (Parakeet, Whisper, summary GGUF, diarization, ffmpeg) is verified against SHA-256 hashes embedded in the app.
+- **Content-free logs:** Logs never contain spoken text, summaries, or personally identifiable information.
+- **Bundled ffmpeg only:** The sidecar is the exclusive ffmpeg source; system PATH is never consulted.
+- **Microphone and system audio separation:** Kept as separate MP4 tracks before diarization, enabling precise speaker attribution.
 
-<p align="center">
-  <img src="docs/images/meetily-interface.png" alt="Meetily live recording interface with speaker-labelled transcription" width="1100" />
-</p>
+## Features
 
-<p align="center"><sub>Live speaker-labelled transcription with synchronized source controls, shown with sanitized demo meetings.</sub></p>
+- **Speaker-aware transcripts:** Microphone speech stays "You"; remote voices become "Speaker 1", "Speaker 2", etc.; overlapped speech renders as "You + Speaker 1".
+- **Separate mic and system audio:** Retained as `mic.mp4` and `system.mp4` alongside the mixed playback track `audio.mp4`.
+- **Parakeet or Whisper transcription:** Parakeet TDT 0.6B v3 (NVIDIA, ONNX) for live and post-call with 25 European languages and automatic language switching; whisper.cpp for post-call retranscription with Metal/CoreML acceleration and vocabulary hints.
+- **Local diarization:** On-device speaker identification via pyannote segmentation 3.0 + WeSpeaker ResNet34 embeddings (ONNX Runtime, no external API).
+- **Local LLM summaries:** Bundled llama.cpp sidecar with Metal support; Qwen 3.5 (2B/4B) or Gemma 3 (1B/4B) models; or bring your own provider (Ollama, OpenAI, Anthropic, Groq, OpenRouter, any OpenAI-compatible endpoint).
+- **Automatic meeting detection:** Watches for Zoom, Teams, Slack, Webex, and other meeting apps; prompts to start recording.
+- **Live audio levels:** Separate microphone and system meters show pre-mix activity during recording.
+- **Floating recording bar:** Compact minibar with timer and pause/resume/stop controls.
+- **Meeting memory:** Global search, reusable people profiles, speaker naming, and person Q&A.
+- **Native exports:** PDF, DOCX, Markdown, JSON, and clipboard.
+- **Automatic post-call processing:** Retranscribes retained source tracks independently, diarizes, and optionally summarizes.
+- **Custom summary templates:** Define your own summary structure and ask custom questions.
+- **Dark and light themes:** Cohesive theming across recording, transcripts, summaries, and settings.
 
-## Latest Release
+## Requirements
 
-Meetily `v0.2.16` selectively incorporates applicable upstream v0.4.1 improvements:
-long-summary coverage, HE-AAC timing, summary progress recovery, recording device
-arguments, and safer model downloads. Windows now bundles a pinned shared ONNX
-Runtime. Existing fork fixes, including the v0.2.14 runtime crash fix, are retained.
-[Read the v0.2.16 changelog and qualification notes](CHANGELOG.md).
-
-## Feature Comparison
-
-Compared with Meetily Community `v0.4.0` and the PRO advantages advertised on its project page (verified August 2026).
-
-**Legend:** ✅ Included · ❌ Not included
-
-| Feature | Meetily Community | Meetily PRO (Paywalled) | Meetily - Actually Free |
-| --- | :---: | :---: | :---: |
-| Live recording and local transcription | ✅ | ✅ | ✅ |
-| Local and BYOK cloud summaries | ✅ | ✅ | ✅ |
-| Create custom summary templates | ❌ | ✅ | ✅ |
-| Automatic meeting joining | ❌ | ✅ | ❌ |
-| Advanced PDF and DOCX exports | ❌ | ✅ | ✅ |
-| Separate mic and system recordings | ❌ | ❌ | ✅ |
-| Calendar integration | ❌ | ✅ | ❌ |
-| Speaker identification | ❌ | ✅ | ✅ |
-| Live mic and system audio visualizations | ❌ | ❌ | ✅ |
-| Independent mic and system mute controls | ❌ | ❌ | ✅ |
-| Automatic meeting detection | ❌ | ✅ | ✅ |
-| Floating recording controls | ❌ | ❌ | ✅ |
-| Compliance audit trails | ❌ | ✅ | ❌ |
-| Chat with meetings | ❌ | ✅ | ✅ |
-| Speaker profiles | ❌ | ❌ | ✅ |
-| Dark mode | ❌ | ❌ | ✅ |
-| Windows GPU acceleration | ❌ | ✅ | ✅ |
-| Automatic GPU setup | ❌ | ❌ | ✅ |
-| No analytics transmission or license checks | ❌ | ❌ | ✅ |
-
-## Highlights
-
-- **Speaker-aware transcripts:** mic speech stays `You`; remote voices become `Speaker N`; overlap can render as `You + Speaker 1`.
-- **Split audio pipeline:** microphone and system audio are VAD-processed and transcribed independently, while aligned source tracks are retained beside the mixed playback file.
-- **Live source visualization:** separate mic and system meters show pre-mix activity throughout recording.
-- **Floating recording bar:** shrink the main window into a compact minibar with a synchronized timer and pause, resume, stop, and restore controls.
-- **Automatic meeting detection:** watches locally for Zoom, Teams, Slack, Webex, and other meeting apps, then prompts you to start recording.
-- **Overhauled interface:** a cohesive dark-first theme across recording, transcripts, summaries, people, and settings, with light mode available.
-- **Universal Windows setup:** one installer selects NVIDIA CUDA, Vulkan, or CPU and packages required runtimes.
-- **Better post-call processing:** retranscribes retained mic/system tracks independently before diarization and summary.
-- **Meeting memory:** global search, reusable people profiles, speaker naming, and grounded person Q&A.
-- **Native exports:** PDF, DOCX, Markdown, text, JSON, or clipboard.
-- **Resilient local models:** resumable, validated downloads with Parakeet mirror fallback.
-- **Whisper vocabulary hints:** teach live and post-call transcription recurring names, acronyms, products, and meeting-specific terms.
-- **Private updates and no telemetry:** Windows update checks are opt-in, and analytics transmission is disabled on every platform.
+- **macOS 14.2 or later** (Sonoma or newer) on Apple Silicon (M1 or newer).
+- **Microphone and System Audio Recording permissions.** Prompted on first use.
+- **Internet connection:** Required only for downloading models (first launch) and, optionally, cloud providers if configured.
 
 ## Install
 
-### Windows
+1. Download the DMG from the [latest release](https://github.com/felipecortesp/RECMeetily/releases).
+2. Open the DMG and drag **RECMeetily** to Applications.
+3. Control-click the app and select **Open** on first launch (the build is not Apple-notarized).
+4. Grant Microphone and System Audio Recording permissions when prompted.
 
-1. Download `Meetily-ActuallyFree-*-universal-setup.exe` from the [latest release](https://github.com/TylerBuza/Meetily-ActuallyFree/releases/latest).
-2. Run setup. It selects CUDA, Vulkan, or CPU automatically.
-3. Complete first-launch model setup.
+## Permissions
 
-Windows 10/11 x64 is supported. The installer is unsigned, so SmartScreen may
-show **Unknown publisher**.
+RECMeetily requests:
 
-### macOS Apple Silicon
+- **Microphone:** Captures local audio from the default input device.
+- **System Audio Recording:** Captures audio from the system output using Core Audio process tap (no bot joins the call, no virtual drivers).
 
-1. Download `Meetily-Actually-Free_0.2.5_aarch64.dmg` from the [macOS release](https://github.com/TylerBuza/Meetily-ActuallyFree/releases/tag/v0.2.5-macos).
-2. Open the DMG and drag **Meetily - Actually Free** to Applications.
-3. Grant microphone and Audio Capture permissions when prompted.
-
-M1 and newer Macs running macOS 14.2 Sonoma or later are supported. The DMG is not Apple-notarized, so first launch may require Control-clicking the app and selecting **Open**. Both releases include SHA-256 checksums.
-
-The current macOS 0.2.5 artifact passed automated Apple Silicon packaging and
-launch checks, but physical macOS 14.2 capture qualification is still pending.
-Treat it as a preview and verify recordings before relying on it for critical
-meetings.
+No camera, screen capture, location, contacts, or calendar permissions are needed or requested.
 
 ## Local Data
 
 | Data | Location |
 | --- | --- |
-| Database, templates, and models | Windows/Linux: install-local when writable; macOS: `~/Library/Application Support/Meetily` |
-| Recording/onboarding preference stores | macOS: `~/Library/Application Support/com.meetily.ai` |
-| Recordings | Windows: `Music/meetily-recordings`; macOS: `Movies/meetily-recordings`; configurable in Settings |
-| Playback and retained tracks | `audio.mp4`, `mic.mp4`, `system.mp4` |
+| Database, templates, models | `~/Library/Application Support/RECMeetily` |
+| Recordings | `~/Movies/recmeetily-recordings` (configurable in Settings) |
+| Playback and retained tracks | `audio.mp4` (mixed), `mic.mp4` (you), `system.mp4` (remote) |
 
-Use **Settings → General → Data Storage Locations** or **Settings → Recording →
-Save Location** to choose another writable recordings folder.
-Meetily validates the destination before saving it and keeps core app data in
-the platform-specific location above.
+On first launch, the app copies existing models and recordings from a previous Meetily installation (if present), leaving the original untouched.
 
-## Build
+## Privacy
 
-<details>
-<summary>Build instructions</summary>
+- **No telemetry:** No analytics or usage tracking. Crash reports are written to a local file only and never sent.
+- **No auto-updater:** Download updates manually from the GitHub releases page.
+- **No backend:** Everything runs on your machine. There is no server, no cloud sync, and no account required.
+- **Hash-verified downloads:** Every model and binary is verified against embedded SHA-256 hashes. Diarization models are fetched from pinned URLs and verified against SHA-256 hashes embedded in the app; see [docs/diarization-models.md](docs/diarization-models.md) for their provenance.
+- **Content-free logs:** Logs never include transcripts, summaries, audio data, or other sensitive content.
+- **Only bundled ffmpeg:** The app uses only its bundled ffmpeg sidecar; system PATH is never consulted.
 
-Windows requirements: Rust, Node.js, pnpm, Visual Studio 2022 Build Tools with C++, CMake, and Git.
+## Build From Source
 
-```powershell
-cd frontend
-pnpm install
-pnpm run tauri:dev:cpu
+Requires: Xcode (full), Rust 1.97+, pnpm 12, Homebrew openssl@3.
+
+1. Build the sidecar:
+
+```bash
+cargo build --release --package llama-helper --target aarch64-apple-darwin --features metal
+cp target/aarch64-apple-darwin/release/llama-helper frontend/src-tauri/binaries/llama-helper-aarch64-apple-darwin
 ```
 
-Universal release build:
-
-```powershell
-cd frontend
-.\scripts\build-universal-windows.ps1 -AllowUnsigned
-```
-
-Apple Silicon DMG build on macOS 14.2 or later:
+2. Build the frontend and package the app:
 
 ```bash
 cd frontend
-pnpm install
-./scripts/build-macos-apple-silicon.sh
+pnpm install --frozen-lockfile
+pnpm exec tauri build --target aarch64-apple-darwin --bundles app
 ```
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) for implementation details and the
-[`macOS release runbook`](.github/workflows/MACOS_RELEASE.md) for the native
-candidate, publication, and physical-device checks.
+3. Create a DMG (optional):
 
-</details>
+```bash
+hdiutil create -volname RECMeetily -srcfolder "<path to RECMeetily.app>" -ov -format UDZO RECMeetily.dmg
+```
 
-## Credits And License
+Environment variables:
 
-Maintained by [Tyler Buza](https://buza.dev). Based on the original [Meetily](https://github.com/Zackriya-Solutions/meetily) project by Zackriya Solutions.
+```bash
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+export MACOSX_DEPLOYMENT_TARGET=14.2
+```
 
-MIT licensed. See [`LICENSE.md`](LICENSE.md). Original copyright notices and license terms are retained.
+See [ARCHITECTURE.md](ARCHITECTURE.md) and [.github/workflows/MACOS_RELEASE.md](.github/workflows/MACOS_RELEASE.md) for more details.
+
+## Acknowledgements
+
+It grew out of [Meetily - Actually Free](https://github.com/TylerBuza/Meetily-ActuallyFree) by Tyler Buza, itself based on [Meetily](https://github.com/Zackriya-Solutions/meetily) by Zackriya Solutions. Thanks to both projects.
+
+Security and bundling ideas came from [Talkkeeper](https://github.com/leyvanah/Talkkeeper): bundled-only ffmpeg, content-free logs, and removing dead backend commands.
+
+Built with open-source models and engines:
+
+- [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) by NVIDIA; ONNX conversion by [istupakov](https://github.com/istupakov).
+- [Whisper](https://github.com/openai/whisper) and [whisper.cpp](https://github.com/ggerganov/whisper.cpp) by OpenAI and ggerganov.
+- [pyannote.audio](https://github.com/pyannote/pyannote-audio) for speaker segmentation.
+- [WeSpeaker](https://github.com/wenet-e2e/wespeaker) for speaker embeddings.
+- [llama.cpp](https://github.com/ggerganov/llama.cpp) by ggerganov.
+- [Qwen](https://github.com/QwenLM/Qwen) by Alibaba and [Gemma](https://github.com/google/gemma) by Google for summary models.
+- [Tauri](https://tauri.app) and [ONNX Runtime](https://onnxruntime.ai).
+
+## License
+
+MIT licensed. See [LICENSE.md](LICENSE.md). Original copyright notices and license terms from Meetily and Meetily - Actually Free are retained.
