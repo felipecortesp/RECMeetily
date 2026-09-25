@@ -108,13 +108,12 @@ fn discover_models_standalone() -> Result<Vec<ModelInfo>, String> {
 
     let mut models = Vec::new();
 
-    for &(name, filename, size_mb, accuracy, speed, description) in model_configs {
+    for &(name, filename, size_mb, accuracy, speed, description, expected_size_bytes, _sha256) in model_configs {
         let model_path = whisper_dir.join(filename);
         let status = if model_path.exists() {
             match std::fs::metadata(&model_path) {
                 Ok(metadata) => {
-                    let file_size_mb = metadata.len() / (1024 * 1024);
-                    if file_size_mb >= 1 {
+                    if metadata.len() == expected_size_bytes {
                         ModelStatus::Available
                     } else {
                         ModelStatus::Missing

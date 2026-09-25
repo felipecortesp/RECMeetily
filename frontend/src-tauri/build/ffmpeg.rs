@@ -3,6 +3,55 @@
 // ============================================================================
 // Download and bundle FFmpeg binaries at build-time to eliminate runtime download delays
 
+/// Expected size and SHA-256 for the FFmpeg archive, pinned from a real
+/// download performed on 2026-09-25. RECMeetily targets Apple Silicon macOS
+/// exclusively, so only the aarch64-apple archive is pinned; other targets
+/// are size/hash-checked only if this table grows to cover them.
+///
+/// Never guessed — recomputed with `shasum -a 256` against the published
+/// release asset.
+struct ExpectedArchive {
+    size: u64,
+    sha256: &'static str,
+}
+
+const FFMPEG_MACOS_AARCH64: ExpectedArchive = ExpectedArchive {
+    size: 22_400_365,
+    sha256: "0d4efcaf6a098430a708e0af694a84792938921fa126162787ae98c6151d7a95",
+};
+
+/// Expected archive metadata for a target triple, if pinned.
+fn expected_archive_for_target(target: &str) -> Option<ExpectedArchive> {
+    if target.contains("apple") && target.contains("aarch64") {
+        Some(FFMPEG_MACOS_AARCH64)
+    } else {
+        None
+    }
+}
+
+/// SHA-256 of a file on disk, lowercase hex. Build scripts run outside the
+/// async runtime, so this reads and hashes synchronously; the FFmpeg zip is
+/// ~22 MB, small enough that a blocking read is not a build-time concern.
+fn sha256_file_sync(path: &std::path::Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path)
+        .map_err(|e| format!("Failed to open {} for verification: {}", path.display(), e))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 1024 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|e| format!("Failed to read {} for verification: {}", path.display(), e))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
 /// Download and bundle FFmpeg binary for current target platform
 /// Checks cache first, downloads only if missing or corrupted
 pub fn ensure_ffmpeg_binary() {
@@ -108,6 +157,45 @@ fn download_and_extract_ffmpeg(
     }
 
     println!("cargo:warning=📦 Downloaded to: {:?}", archive_path);
+
+    // Verify the archive before trusting it with anything — a corrupted or
+    // tampered FFmpeg binary would otherwise be silently extracted and
+    // shipped. Only the macOS aarch64 archive has a pinned hash today (see
+    // ExpectedArchive doc comment); other targets are skipped with a warning
+    // rather than failing the build.
+    match expected_archive_for_target(target) {
+        Some(expected) => {
+            println!("cargo:warning=🔐 Verifying archive against pinned size + SHA-256...");
+            let actual_size = std::fs::metadata(&archive_path)
+                .map_err(|e| format!("Failed to read archive metadata: {}", e))?
+                .len();
+            if actual_size != expected.size {
+                let _ = std::fs::remove_file(&archive_path);
+                return Err(format!(
+                    "FFmpeg archive has the wrong size: expected {} bytes, got {} bytes. \
+                     Refusing to extract a download that doesn't match the pinned artifact.",
+                    expected.size, actual_size
+                ));
+            }
+            let actual_sha256 = sha256_file_sync(&archive_path)?;
+            if actual_sha256 != expected.sha256 {
+                let _ = std::fs::remove_file(&archive_path);
+                return Err(format!(
+                    "FFmpeg archive failed SHA-256 verification: expected {}, got {}. \
+                     Refusing to extract a download that doesn't match the pinned artifact.",
+                    expected.sha256, actual_sha256
+                ));
+            }
+            println!("cargo:warning=✅ FFmpeg archive verified (size + SHA-256 match)");
+        }
+        None => {
+            println!(
+                "cargo:warning=⚠️  No pinned checksum for target {} — skipping archive verification",
+                target
+            );
+        }
+    }
+
     println!("cargo:warning=📂 Extracting FFmpeg binary...");
 
     // Extract binary (platform-specific)

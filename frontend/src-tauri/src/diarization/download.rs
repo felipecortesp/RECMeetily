@@ -12,8 +12,9 @@ use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::path::Path;
 use tauri::{AppHandle, Emitter, Runtime};
+
+use crate::download_verify::sha256_file;
 
 /// Release that hosts the model assets.
 const RELEASE_BASE: &str =
@@ -61,14 +62,6 @@ fn emit<R: Runtime>(app: &AppHandle<R>, p: DownloadProgress) {
     let _ = app.emit("diarization-download-progress", p);
 }
 
-/// SHA-256 of a file on disk, lowercase hex.
-async fn file_sha256(path: &Path) -> Result<String> {
-    let bytes = tokio::fs::read(path).await?;
-    let mut hasher = Sha256::new();
-    hasher.update(&bytes);
-    Ok(format!("{:x}", hasher.finalize()))
-}
-
 /// Download all missing/invalid diarization model assets.
 pub async fn download_models<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     // Always download into the writable user directory (never the read-only
@@ -88,7 +81,7 @@ pub async fn download_models<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
 
         // Already present and valid? Skip.
         if dest.exists() {
-            if let Ok(hash) = file_sha256(&dest).await {
+            if let Ok(hash) = sha256_file(&dest).await {
                 if hash == *expected_hash {
                     completed_bytes += expected_size;
                     log::info!("✅ {} already present and verified", name);
