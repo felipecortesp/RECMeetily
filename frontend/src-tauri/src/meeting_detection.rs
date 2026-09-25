@@ -167,12 +167,6 @@ fn scan_for_meeting_app(settings: &MeetingDetectionSettings) -> Option<(String, 
         ignored.iter().any(|ig| name.contains(ig))
     };
 
-    #[cfg(windows)]
-    let media_in_use: std::collections::HashSet<String> = windows_media_in_use_exes()
-        .into_iter()
-        .filter(|e| !is_self_process(e))
-        .collect();
-    #[cfg(not(windows))]
     let media_in_use: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     let matches_media = |name: &str| -> bool {
@@ -225,56 +219,6 @@ fn scan_for_meeting_app(settings: &MeetingDetectionSettings) -> Option<(String, 
         }
     }
     None
-}
-
-/// Windows: executables currently holding microphone or webcam via
-/// CapabilityAccessManager NonPackaged consent-store entries
-/// (LastUsedTimeStart > LastUsedTimeStop ⇒ in use).
-#[cfg(windows)]
-fn windows_media_in_use_exes() -> std::collections::HashSet<String> {
-    use winreg::enums::HKEY_CURRENT_USER;
-    use winreg::RegKey;
-
-    let mut out = std::collections::HashSet::new();
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    for cap in ["microphone", "webcam"] {
-        let path = format!(
-            "Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\{cap}\\NonPackaged"
-        );
-        let Ok(root) = hkcu.open_subkey(&path) else {
-            continue;
-        };
-        let Ok(keys) = root.enum_keys().collect::<Result<Vec<_>, _>>() else {
-            continue;
-        };
-        for key_name in keys {
-            let Ok(sub) = root.open_subkey(&key_name) else {
-                continue;
-            };
-            // Values are FILETIME-like u64; Start > Stop means currently open.
-            let start: u64 = sub.get_value("LastUsedTimeStart").unwrap_or(0);
-            let stop: u64 = sub.get_value("LastUsedTimeStop").unwrap_or(0);
-            if start == 0 {
-                continue;
-            }
-            // 0xFFFFFFFFFFFFFFFF stop means "still in use" on some builds;
-            // otherwise start > stop.
-            let in_use = stop == u64::MAX || start > stop;
-            if !in_use {
-                continue;
-            }
-            // Key names look like C:#Program Files#...#Teams.exe
-            let exe = key_name
-                .rsplit('#')
-                .next()
-                .unwrap_or(&key_name)
-                .to_lowercase();
-            if exe.ends_with(".exe") {
-                out.insert(exe);
-            }
-        }
-    }
-    out
 }
 
 /// Does a process name match a meeting-app keyword?

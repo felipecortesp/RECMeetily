@@ -391,12 +391,6 @@ fn build_menu<R: Runtime>(
         .item(&MenuItemBuilder::with_id("open_window", "Open Main Window").build(app)?)
         .item(&MenuItemBuilder::with_id("settings", "Settings").build(app)?);
 
-    #[cfg(not(target_os = "macos"))]
-    {
-        builder = builder
-            .item(&MenuItemBuilder::with_id("check_updates", "Check for Updates").build(app)?);
-    }
-
     builder
         .item(&PredefinedMenuItem::separator(app)?)
         .item(&MenuItemBuilder::with_id("quit", "Quit").build(app)?)

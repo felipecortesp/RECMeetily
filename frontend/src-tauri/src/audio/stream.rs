@@ -10,9 +10,7 @@ use super::pipeline::AudioCapture;
 use super::recording_state::{RecordingState, DeviceType};
 use super::capture::{AudioCaptureBackend, get_current_backend};
 
-#[cfg(target_os = "macos")]
 use super::capture::CoreAudioCapture;
-#[cfg(target_os = "macos")]
 use super::recording_state::AudioError;
 
 /// Stream backend implementation
@@ -20,7 +18,6 @@ pub enum StreamBackend {
     /// CPAL-based stream (ScreenCaptureKit or default)
     Cpal(Stream),
     /// Core Audio direct implementation (macOS only)
-    #[cfg(target_os = "macos")]
     CoreAudio {
         task: Option<tokio::task::JoinHandle<()>>,
     },
@@ -65,40 +62,25 @@ impl AudioStream {
 
         // For system audio devices, use the selected backend
         // For microphone devices, always use CPAL
-        #[cfg(target_os = "macos")]
         let use_core_audio = device_type == DeviceType::System
             && backend_type == AudioCaptureBackend::CoreAudio;
 
-        #[cfg(not(target_os = "macos"))]
-        let use_core_audio = false;
-
-        #[cfg(target_os = "macos")]
         info!("🎵 Stream: use_core_audio = {}, device_type == System: {}, backend == CoreAudio: {}",
               use_core_audio,
               device_type == DeviceType::System,
               backend_type == AudioCaptureBackend::CoreAudio);
 
-        #[cfg(not(target_os = "macos"))]
-        info!("🎵 Stream: use_core_audio = {}, device_type == System: {}",
-              use_core_audio,
-              device_type == DeviceType::System);
-
-        #[cfg(target_os = "macos")]
         if use_core_audio {
             info!("🎵 Stream: Using Core Audio backend (cidre) for system audio");
             return Self::create_core_audio_stream(device, state, device_type, recording_sender).await;
         }
 
         // Default path: use CPAL
-        #[cfg(target_os = "macos")]
         let backend_name = if backend_type == AudioCaptureBackend::ScreenCaptureKit {
             "ScreenCaptureKit"
         } else {
             "CPAL (default)"
         };
-
-        #[cfg(not(target_os = "macos"))]
-        let backend_name = "CPAL";
 
         info!("🎵 Stream: Using CPAL backend ({}) for device: {}", backend_name, device.name);
         Self::create_cpal_stream(device, state, device_type, recording_sender).await
@@ -143,7 +125,6 @@ impl AudioStream {
     }
 
     /// Create a Core Audio stream (macOS only)
-    #[cfg(target_os = "macos")]
     async fn create_core_audio_stream(
         device: Arc<AudioDevice>,
         state: Arc<RecordingState>,
@@ -368,7 +349,6 @@ impl AudioStream {
                 info!("Stream paused, now dropping to release callbacks");
                 drop(stream);
             }
-            #[cfg(target_os = "macos")]
             StreamBackend::CoreAudio { task } => {
                 // Abort the processing task and wait briefly for cleanup
                 if let Some(task_handle) = task {

@@ -146,9 +146,6 @@ pub fn is_monitoring() -> bool {
 fn default_monitor_devices() -> Vec<String> {
     let mut out = Vec::new();
 
-    #[cfg(target_os = "windows")]
-    let host = cpal::host_from_id(cpal::HostId::Wasapi).unwrap_or_else(|_| cpal::default_host());
-    #[cfg(not(target_os = "windows"))]
     let host = cpal::default_host();
 
     if let Some(d) = host.default_input_device() {
@@ -166,11 +163,8 @@ fn default_monitor_devices() -> Vec<String> {
     out
 }
 
-/// Open a cpal input stream for levels. Tries mic input first, then WASAPI loopback on output.
+/// Open a cpal input stream for levels. Tries mic input first, then output.
 fn open_level_stream(device_name: &str, levels: LevelMap) -> Result<cpal::Stream> {
-    #[cfg(target_os = "windows")]
-    let host = cpal::host_from_id(cpal::HostId::Wasapi).unwrap_or_else(|_| cpal::default_host());
-    #[cfg(not(target_os = "windows"))]
     let host = cpal::default_host();
 
     // 1) Input (microphone)

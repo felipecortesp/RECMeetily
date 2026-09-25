@@ -21,14 +21,11 @@
 use anyhow::Result;
 use log::info;
 
-#[cfg(target_os = "macos")]
 use crate::audio::InputDeviceKind;
 use super::configuration::AudioDevice;
 use super::microphone::default_input_device;
-#[cfg(target_os = "macos")]
 use super::microphone::find_builtin_input_device;
 use super::speakers::default_output_device;
-#[cfg(target_os = "macos")]
 use log::warn;
 
 /// Get safe recording devices with automatic Bluetooth fallback (macOS-specific)
@@ -65,7 +62,6 @@ use log::warn;
 /// // "→ Overriding to stable built-in: MacBook Pro Microphone"
 /// // "✅ Using wired speaker: MacBook Pro Speakers"
 /// ```
-#[cfg(target_os = "macos")]
 pub fn get_safe_recording_devices_macos() -> Result<(Option<AudioDevice>, Option<AudioDevice>)> {
     info!("🔍 [macOS] Selecting recording devices with Bluetooth detection...");
 
@@ -157,23 +153,11 @@ pub fn get_safe_recording_devices_macos() -> Result<(Option<AudioDevice>, Option
     Ok((final_mic, final_speaker))
 }
 
-// Non-macOS platforms: Just use system defaults (no Bluetooth override needed)
-#[cfg(not(target_os = "macos"))]
-pub fn get_safe_recording_devices() -> Result<(Option<AudioDevice>, Option<AudioDevice>)> {
-    info!("🔍 Selecting default recording devices (no Bluetooth override on this platform)");
-
-    let mic = default_input_device().ok();
-    let speaker = default_output_device().ok();
-
-    Ok((mic, speaker))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    #[cfg(target_os = "macos")]
     fn test_bluetooth_override_logic() {
         // This test verifies the logic but requires actual audio devices
         // Run manually on macOS development machines to verify behavior

@@ -1,8 +1,6 @@
 // Core Audio implementation for macOS system audio capture
 
-#[cfg(target_os = "macos")]
 use std::pin::Pin;
-#[cfg(target_os = "macos")]
 use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -15,7 +13,6 @@ use ringbuf::{
 };
 use log::{error, info, warn};
 
-#[cfg(target_os = "macos")]
 use cidre::{arc, av, cat, cf, core_audio as ca, os};
 
 /// Waker state for async polling
@@ -25,14 +22,12 @@ struct WakerState {
 }
 
 /// Core Audio speaker input using aggregate device + tap
-#[cfg(target_os = "macos")]
 pub struct CoreAudioCapture {
     tap: ca::TapGuard,
     agg_desc: arc::Retained<cf::DictionaryOf<cf::String, cf::Type>>,
 }
 
 /// Core Audio stream that produces audio samples
-#[cfg(target_os = "macos")]
 pub struct CoreAudioStream {
     consumer: HeapCons<f32>,
     _device: ca::hardware::StartedDevice<ca::AggregateDevice>,
@@ -43,7 +38,6 @@ pub struct CoreAudioStream {
 }
 
 /// Audio processing context
-#[cfg(target_os = "macos")]
 struct AudioContext {
     format: arc::R<av::AudioFormat>,
     producer: HeapProd<f32>,
@@ -53,7 +47,6 @@ struct AudioContext {
     should_terminate: Arc<AtomicBool>,
 }
 
-#[cfg(target_os = "macos")]
 impl CoreAudioCapture {
     /// Create a new Core Audio capture for system audio
     pub fn new() -> Result<Self> {
@@ -331,7 +324,6 @@ impl CoreAudioCapture {
 }
 
 /// Process audio data from the IO proc callback
-#[cfg(target_os = "macos")]
 fn process_audio_data(ctx: &mut AudioContext, data: &[f32]) {
     // Push raw samples directly to ring buffer
     // Let the pipeline handle all gain adjustments (post-mix 3x gain + mic normalization)
@@ -366,7 +358,6 @@ fn process_audio_data(ctx: &mut AudioContext, data: &[f32]) {
     }
 }
 
-#[cfg(target_os = "macos")]
 impl CoreAudioStream {
     /// Get current sample rate
     pub fn sample_rate(&self) -> u32 {
@@ -374,7 +365,6 @@ impl CoreAudioStream {
     }
 }
 
-#[cfg(target_os = "macos")]
 impl Stream for CoreAudioStream {
     type Item = f32;
 
@@ -407,48 +397,10 @@ impl Stream for CoreAudioStream {
     }
 }
 
-#[cfg(target_os = "macos")]
 impl Drop for CoreAudioStream {
     fn drop(&mut self) {
         info!("CoreAudioStream dropped, signaling termination");
         self._ctx.should_terminate.store(true, Ordering::Release);
-    }
-}
-
-// Stub implementations for non-macOS platforms
-#[cfg(not(target_os = "macos"))]
-pub struct CoreAudioCapture;
-
-#[cfg(not(target_os = "macos"))]
-pub struct CoreAudioStream;
-
-#[cfg(not(target_os = "macos"))]
-impl CoreAudioCapture {
-    pub fn new() -> Result<Self> {
-        Err(anyhow::anyhow!("Core Audio is only supported on macOS"))
-    }
-
-    pub fn stream(self) -> Result<CoreAudioStream> {
-        Err(anyhow::anyhow!("Core Audio is only supported on macOS"))
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-impl CoreAudioStream {
-    pub fn sample_rate(&self) -> u32 {
-        0
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-impl Stream for CoreAudioStream {
-    type Item = f32;
-
-    fn poll_next(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        Poll::Ready(None)
     }
 }
 
@@ -457,7 +409,6 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[cfg(target_os = "macos")]
     #[ignore] // Only run manually as it requires audio hardware
     async fn test_core_audio_capture() {
         use futures_util::StreamExt;

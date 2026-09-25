@@ -7,7 +7,6 @@
 use anyhow::Result;
 use log::{info, warn, error};
 
-#[cfg(target_os = "macos")]
 use std::process::Command;
 
 /// Check whether the platform supports the Audio Capture permission flow.
@@ -19,7 +18,6 @@ use std::process::Command;
 ///
 /// This function returns true because the actual permission prompt happens automatically
 /// when AudioHardwareCreateProcessTap is called by the cidre library.
-#[cfg(target_os = "macos")]
 pub fn check_screen_recording_permission() -> bool {
     info!("ℹ️  Core Audio tap requires Audio Capture permission (macOS 14.2+)");
     info!("📍 Permission dialog will appear automatically when recording starts");
@@ -29,14 +27,8 @@ pub fn check_screen_recording_permission() -> bool {
     true
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn check_screen_recording_permission() -> bool {
-    true // Not required on other platforms
-}
-
 /// Request Audio Capture permission from the user
 /// This will open System Settings to the Privacy & Security page
-#[cfg(target_os = "macos")]
 pub fn request_screen_recording_permission() -> Result<()> {
     info!("🔐 Opening System Settings for Audio Capture permission...");
 
@@ -57,11 +49,6 @@ pub fn request_screen_recording_permission() -> Result<()> {
             Err(anyhow::anyhow!("Failed to open System Settings: {}", e))
         }
     }
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn request_screen_recording_permission() -> Result<()> {
-    Ok(()) // Not required on other platforms
 }
 
 /// Check and request Audio Capture permission if not granted
@@ -97,7 +84,6 @@ pub async fn request_screen_recording_permission_command() -> Result<(), String>
 /// Trigger the system-audio permission request and probe functional capture.
 /// Returns Ok(true) only when the started tap receives audible system audio;
 /// false can mean denial, silence, or another capture initialization failure.
-#[cfg(target_os = "macos")]
 pub fn trigger_system_audio_permission() -> Result<bool> {
     info!("🔐 Triggering Audio Capture permission request...");
 
@@ -127,13 +113,6 @@ pub fn trigger_system_audio_permission() -> Result<bool> {
             Ok(false)
         }
     }
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn trigger_system_audio_permission() -> Result<bool> {
-    // System audio permissions not required on other platforms
-    info!("System audio permissions not required on this platform");
-    Ok(true)
 }
 
 /// Trigger Audio Capture permission and test for audible samples for up to five

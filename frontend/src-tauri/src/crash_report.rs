@@ -308,22 +308,12 @@ fn selected_backend() -> String {
         }
     }
 
-    if cfg!(feature = "cuda") {
-        "cuda"
-    } else if cfg!(feature = "vulkan") {
-        "vulkan"
-    } else if cfg!(feature = "metal") {
+    if cfg!(feature = "metal") {
         "metal"
     } else if cfg!(feature = "coreml") {
         "coreml"
-    } else if cfg!(feature = "openblas") {
-        "openblas"
-    } else if cfg!(feature = "hipblas") {
-        "hipblas"
-    } else if cfg!(target_os = "macos") {
-        "metal"
     } else {
-        "cpu"
+        "metal"
     }
     .to_string()
 }
@@ -394,7 +384,6 @@ fn append_legacy_crash_log(
     let path = data_root.join("crash.log");
     let mut options = OpenOptions::new();
     options.create(true).append(true);
-    #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);

@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::sync::OnceLock;
 use log::info;
 
@@ -84,11 +83,8 @@ impl HardwareProfile {
     /// Detect GPU acceleration capabilities
     fn detect_gpu() -> (bool, GpuType) {
         // Check for Metal (Apple Silicon)
-        #[cfg(target_os = "macos")]
-        {
-            if Self::has_metal_support() {
-                return (true, GpuType::Metal);
-            }
+        if Self::has_metal_support() {
+            return (true, GpuType::Metal);
         }
 
         // Check for CUDA (NVIDIA)
@@ -151,7 +147,6 @@ impl HardwareProfile {
         }
     }
 
-    #[cfg(target_os = "macos")]
     fn has_metal_support() -> bool {
         // Simple check for Apple Silicon (Metal is available on Intel Macs too, but less optimal for ML)
         std::env::consts::ARCH == "aarch64"
@@ -165,88 +160,42 @@ impl HardwareProfile {
     }
 
     fn has_vulkan_support() -> bool {
-        if std::env::var("VULKAN_SDK").is_ok() ||
+        std::env::var("VULKAN_SDK").is_ok() ||
             std::path::Path::new("/usr/lib/x86_64-linux-gnu/libvulkan.so").exists() ||
             std::path::Path::new("/usr/lib/libvulkan.so").exists()
-        {
-            return true;
-        }
-
-        #[cfg(target_os = "windows")]
-        {
-            return Self::has_windows_vulkan_runtime();
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            false
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    fn has_windows_vulkan_runtime() -> bool {
-        for env_var in ["SystemRoot", "WINDIR"] {
-            if let Ok(system_root) = std::env::var(env_var) {
-                if Self::has_windows_vulkan_loader(Path::new(&system_root)) {
-                    return true;
-                }
-            }
-        }
-
-        Self::has_windows_vulkan_loader(Path::new(r"C:\Windows"))
-    }
-
-    fn has_windows_vulkan_loader(system_root: &Path) -> bool {
-        system_root.join("System32").join("vulkan-1.dll").is_file()
     }
 
     /// Generate adaptive Whisper configuration based on hardware
     pub fn get_whisper_config(&self) -> AdaptiveWhisperConfig {
-        // Windows-specific override: Always use beam size 2 for stability
-        #[cfg(target_os = "windows")]
-        {
-            return AdaptiveWhisperConfig {
-                beam_size: 2,
-                temperature: 0.2,
+        match self.performance_tier {
+            PerformanceTier::Ultra => AdaptiveWhisperConfig {
+                beam_size: 5,  // Maximum quality
+                temperature: 0.1,
                 use_gpu: self.has_gpu_acceleration,
                 max_threads: Some(self.cpu_cores.min(8) as usize),
+                chunk_size_preference: ChunkSizePreference::Quality,
+            },
+            PerformanceTier::High => AdaptiveWhisperConfig {
+                beam_size: 3,  // High quality
+                temperature: 0.2,
+                use_gpu: self.has_gpu_acceleration,
+                max_threads: Some(self.cpu_cores.min(6) as usize),
                 chunk_size_preference: ChunkSizePreference::Balanced,
-            };
-        }
-
-        // Platform-adaptive configuration for non-Windows systems
-        #[cfg(not(target_os = "windows"))]
-        {
-            match self.performance_tier {
-                PerformanceTier::Ultra => AdaptiveWhisperConfig {
-                    beam_size: 5,  // Maximum quality
-                    temperature: 0.1,
-                    use_gpu: self.has_gpu_acceleration,
-                    max_threads: Some(self.cpu_cores.min(8) as usize),
-                    chunk_size_preference: ChunkSizePreference::Quality,
-                },
-                PerformanceTier::High => AdaptiveWhisperConfig {
-                    beam_size: 3,  // High quality
-                    temperature: 0.2,
-                    use_gpu: self.has_gpu_acceleration,
-                    max_threads: Some(self.cpu_cores.min(6) as usize),
-                    chunk_size_preference: ChunkSizePreference::Balanced,
-                },
-                PerformanceTier::Medium => AdaptiveWhisperConfig {
-                    beam_size: 2,  // Balanced
-                    temperature: 0.3,
-                    use_gpu: self.has_gpu_acceleration,
-                    max_threads: Some(self.cpu_cores.min(4) as usize),
-                    chunk_size_preference: ChunkSizePreference::Balanced,
-                },
-                PerformanceTier::Low => AdaptiveWhisperConfig {
-                    beam_size: 1,  // Fast processing
-                    temperature: 0.4,
-                    use_gpu: false, // Force CPU to avoid GPU overhead on weak hardware
-                    max_threads: Some(2),
-                    chunk_size_preference: ChunkSizePreference::Fast,
-                },
-            }
+            },
+            PerformanceTier::Medium => AdaptiveWhisperConfig {
+                beam_size: 2,  // Balanced
+                temperature: 0.3,
+                use_gpu: self.has_gpu_acceleration,
+                max_threads: Some(self.cpu_cores.min(4) as usize),
+                chunk_size_preference: ChunkSizePreference::Balanced,
+            },
+            PerformanceTier::Low => AdaptiveWhisperConfig {
+                beam_size: 1,  // Fast processing
+                temperature: 0.4,
+                use_gpu: false, // Force CPU to avoid GPU overhead on weak hardware
+                max_threads: Some(2),
+                chunk_size_preference: ChunkSizePreference::Fast,
+            },
         }
     }
 
@@ -307,20 +256,4 @@ mod tests {
         assert_eq!(high_tier, PerformanceTier::Ultra);
     }
 
-    #[test]
-    fn hardware_detector_finds_windows_vulkan_loader_in_system32() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let system32 = temp_dir.path().join("System32");
-        std::fs::create_dir(&system32).unwrap();
-        std::fs::write(system32.join("vulkan-1.dll"), []).unwrap();
-
-        assert!(HardwareProfile::has_windows_vulkan_loader(temp_dir.path()));
-    }
-
-    #[test]
-    fn hardware_detector_rejects_missing_windows_vulkan_loader() {
-        let temp_dir = tempfile::tempdir().unwrap();
-
-        assert!(!HardwareProfile::has_windows_vulkan_loader(temp_dir.path()));
-    }
 }

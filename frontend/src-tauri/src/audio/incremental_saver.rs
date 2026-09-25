@@ -223,14 +223,6 @@ impl IncrementalAudioSaver {
             output.to_str().unwrap()
         ]);
 
-        // Hide console window on Windows to prevent CMD popup during finalization
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
-
         let ffmpeg_output = command.output()?;
 
         if !ffmpeg_output.status.success() {
@@ -326,11 +318,6 @@ fn recover_checkpoint_track(
         "-y",
         temp_output.to_str().ok_or("Invalid output path")?,
     ]);
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x08000000);
-    }
 
     let output = command
         .output()

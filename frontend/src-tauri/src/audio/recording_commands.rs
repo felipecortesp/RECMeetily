@@ -131,39 +131,6 @@ fn map_recording_start_error<R: Runtime>(app: &AppHandle<R>, error: anyhow::Erro
     }
 }
 
-#[cfg(target_os = "windows")]
-fn start_windows_audio_route_monitor<R: Runtime>(
-    app: &AppHandle<R>,
-    manager: &RecordingManager,
-    system_device_name: Option<String>,
-) {
-    let system_capture_active = manager
-        .get_state()
-        .active_capture_sources()
-        .map(|(_, system_active)| system_active)
-        .unwrap_or(false);
-
-    if system_capture_active {
-        if let Some(device_name) = system_device_name.as_ref() {
-            super::windows_audio_sessions::start_monitoring(app.clone(), device_name.clone());
-            return;
-        }
-    }
-
-    super::windows_audio_sessions::stop_monitoring();
-    let device = system_device_name.unwrap_or_else(|| "the selected output".to_string());
-    let warning = super::windows_audio_sessions::AudioRouteWarning {
-        title: "System audio is not being captured".to_string(),
-        message: format!(
-            "Meetily could not open {} for loopback capture. Your microphone is still recording; stop and restart after selecting an available output under Settings > Recording > System Audio.",
-            device
-        ),
-    };
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.emit("recording-audio-route-warning", warning);
-    }
-}
-
 // ============================================================================
 // PUBLIC TYPES
 // ============================================================================
@@ -328,7 +295,6 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     // ============================================================================
     // SYSTEM AUDIO DEVICE RESOLUTION: Preference â†’ Default â†’ None (optional)
     // ============================================================================
-    #[cfg(target_os = "macos")]
     let system_device = {
         if let Some(pref_name) = preferred_system_name {
             warn!(
@@ -348,55 +314,6 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
         }
     };
 
-    #[cfg(not(target_os = "macos"))]
-    let system_device = match preferred_system_name {
-        Some(pref_name) => {
-            info!("ðŸ”Š Attempting to use preferred system audio: '{}'", pref_name);
-            match parse_audio_device(&pref_name) {
-                Ok(device) => {
-                    match get_device_and_config(&device).await {
-                        Ok(_) => {
-                            info!("âœ… Using preferred system audio: '{}'", device.name);
-                            Some(Arc::new(device))
-                        }
-                        Err(e) => {
-                            warn!("Preferred system audio '{}' is no longer available: {}", pref_name, e);
-                            default_output_device().ok().map(Arc::new)
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!("âš ï¸ Preferred system audio '{}' not available: {}", pref_name, e);
-                    warn!("   Falling back to system default...");
-                    match default_output_device() {
-                        Ok(device) => {
-                            info!("âœ… Using default system audio: '{}'", device.name);
-                            Some(Arc::new(device))
-                        }
-                        Err(default_err) => {
-                            warn!("âš ï¸ No system audio available (preferred and default both failed): {}", default_err);
-                            warn!("   Recording will continue with microphone only");
-                            None // System audio is optional
-                        }
-                    }
-                }
-            }
-        }
-        None => {
-            info!("ðŸ”Š No system audio preference set, using system default");
-            match default_output_device() {
-                Ok(device) => {
-                    info!("âœ… Using default system audio: '{}'", device.name);
-                    Some(Arc::new(device))
-                }
-                Err(e) => {
-                    warn!("âš ï¸ No default system audio available: {}", e);
-                    warn!("   Recording will continue with microphone only");
-                    None // System audio is optional
-                }
-            }
-        }
-    };
 
     // Always ensure a meeting name is set so incremental saver initializes
     let effective_meeting_name = meeting_name.clone().unwrap_or_else(|| {
@@ -415,15 +332,10 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     let level_sender = spawn_level_forwarder(&app);
 
     // Start recording with resolved devices (replaces start_recording_with_defaults_and_auto_save call)
-    #[cfg(target_os = "windows")]
-    let resolved_system_device_name = system_device.as_ref().map(|device| device.name.clone());
     let transcription_receiver = manager
         .start_recording(microphone_device, system_device, auto_save, Some(level_sender))
         .await
         .map_err(|error| map_recording_start_error(&app, error))?;
-
-    #[cfg(target_os = "windows")]
-    start_windows_audio_route_monitor(&app, &manager, resolved_system_device_name);
 
     // Store the manager globally to keep it alive
     {
@@ -598,7 +510,6 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
         })?))
     };
 
-    #[cfg(target_os = "macos")]
     let system_device = {
         if let Some(name) = system_device_name.as_ref() {
             warn!(
@@ -615,23 +526,6 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
         }
     };
 
-    #[cfg(not(target_os = "macos"))]
-    let system_device = if let Some(ref name) = system_device_name {
-        let preferred = parse_audio_device(name)
-            .map_err(|e| format!("Invalid system device '{}': {}", name, e))?;
-        match get_device_and_config(&preferred).await {
-            Ok(_) => Some(Arc::new(preferred)),
-            Err(error) => {
-                warn!(
-                    "Requested system device '{}' is unavailable ({}); using the current default",
-                    name, error
-                );
-                default_output_device().ok().map(Arc::new)
-            }
-        }
-    } else {
-        default_output_device().ok().map(Arc::new)
-    };
 
     // Async-first approach for custom devices - no more blocking operations!
     info!("ðŸš€ Starting async recording initialization with custom devices");
@@ -669,15 +563,10 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     let level_sender = spawn_level_forwarder(&app);
 
     // Start recording with specified devices and auto_save setting
-    #[cfg(target_os = "windows")]
-    let resolved_system_device_name = system_device.as_ref().map(|device| device.name.clone());
     let transcription_receiver = manager
         .start_recording(mic_device, system_device, auto_save, Some(level_sender))
         .await
         .map_err(|error| map_recording_start_error(&app, error))?;
-
-    #[cfg(target_os = "windows")]
-    start_windows_audio_route_monitor(&app, &manager, resolved_system_device_name);
 
     // Store the manager globally to keep it alive
     {
@@ -819,9 +708,6 @@ async fn stop_recording_inner<R: Runtime>(
         return Ok(StopOutcome::AlreadyStopping);
     }
     let _stop_guard = StopGuard;
-
-    #[cfg(target_os = "windows")]
-    super::windows_audio_sessions::stop_monitoring();
 
     // Rust owns teardown. This is independent of webview event delivery and is
     // serialized against duplicate/queued minimize callbacks.
