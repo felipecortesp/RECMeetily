@@ -213,7 +213,7 @@
   }
 }
 /* ============================================================
-   "Actually Free" semantic palette
+   RECMeetily semantic palette (--af-* tokens)
    Components use these tokens in both themes. Light is the base palette;
    <html class="dark"> switches the same surfaces to the deep-navy skin.
    ============================================================ */

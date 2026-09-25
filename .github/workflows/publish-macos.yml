@@ -210,7 +210,7 @@ jobs:
           {
             echo "## Meetily for macOS"
             echo
-            echo "Meetily - Actually Free is a privacy-first meeting assistant with local recording, transcription, and summarization."
+            echo "RECMeetily is a privacy-first meeting assistant with local recording, transcription, and summarization."
             echo
             echo "### Requirements"
             echo
@@ -220,7 +220,7 @@ jobs:
             echo "### Install"
             echo
             echo "1. Download \`Meetily-Actually-Free_${VERSION}_aarch64.dmg\`."
-            echo "2. Open it and drag Meetily - Actually Free to Applications."
+            echo "2. Open it and drag RECMeetily to Applications."
             echo "3. Open Meetily from Applications."
             if [[ "$NOTARIZED" != "true" ]]; then
               echo
@@ -277,7 +277,7 @@ jobs:
             "repos/$GITHUB_REPOSITORY/releases" \
             -f "tag_name=$RELEASE_TAG" \
             -f "target_commitish=$TARGET_COMMIT" \
-            -f "name=Meetily - Actually Free v${VERSION} for macOS" \
+            -f "name=RECMeetily v${VERSION} for macOS" \
             -f "body=$(cat release-notes-macos.md)" \
             -F draft=true \
             -F prerelease=false \

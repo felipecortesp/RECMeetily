@@ -1,10 +1,11 @@
 //! One-click download of the local speaker-diarization models.
 //!
-//! Models are hosted as release assets on this fork's own GitHub repository,
-//! so setup needs no third-party bandwidth and no account/token. Each file is
-//! streamed to a `.part` temporary, SHA-256 verified, then atomically renamed
-//! into place — a partial or corrupt download can never be mistaken for a
-//! valid model.
+//! Models are hosted as release assets on the RECMeetily GitHub repository,
+//! so setup needs no third-party bandwidth and no account/token. The assets
+//! were originally published by the Meetily - Actually Free project and are
+//! re-hosted here byte-for-byte. Each file is streamed to a `.part`
+//! temporary, SHA-256 verified, then atomically renamed into place — a
+//! partial or corrupt download can never be mistaken for a valid model.
 //!
 //! Progress is reported to the UI via `diarization-download-progress` events.
 
@@ -18,7 +19,7 @@ use crate::download_verify::sha256_file;
 
 /// Release that hosts the model assets.
 const RELEASE_BASE: &str =
-    "https://github.com/TylerBuza/Meetily-ActuallyFree/releases/download/diarization-models-v1";
+    "https://github.com/felipecortesp/RECMeetily/releases/download/diarization-models-v1";
 
 /// (filename, expected size in bytes, expected sha256)
 const ASSETS: [(&str, u64, &str); 3] = [

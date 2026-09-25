@@ -187,7 +187,7 @@ export function PreferenceSettings() {
           type="text"
           value={userName}
           onChange={(e) => saveUserName(e.target.value)}
-          placeholder="e.g. Tyler"
+          placeholder="e.g. Ana"
           className="w-full max-w-sm rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none"
         />
       </div>

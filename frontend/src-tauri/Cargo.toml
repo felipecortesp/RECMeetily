@@ -2,8 +2,8 @@
 name = "recmeetily"
 version = "0.3.0"
 description = "RECMeetily: privacy-first local meeting recorder for macOS"
-authors = ["TylerBuza"]
-repository = "https://github.com/TylerBuza/Meetily-ActuallyFree"
+authors = ["Felipe Cortes"]
+repository = "https://github.com/felipecortesp/RECMeetily"
 license = "MIT"
 publish = false
 edition = "2021"
