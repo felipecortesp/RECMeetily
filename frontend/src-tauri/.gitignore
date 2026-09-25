@@ -9,8 +9,6 @@ Cargo.toml.orig
 runtime-deps/*
 !runtime-deps/.gitkeep
 # Staged CPU/Vulkan/CUDA app binaries for the universal NSIS package
-installer-variants/*
-!installer-variants/.gitkeep
 
 # Pinned Windows ONNX runtime staged and verified by build/onnxruntime.rs
 /binaries/onnxruntime/
