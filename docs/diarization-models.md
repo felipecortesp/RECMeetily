@@ -49,11 +49,46 @@ authentication. Any switch would need either a token-gated download flow (which
 conflicts with this fork's no-account-required goal) or would have to keep
 re-hosting this one file regardless of what happens to the other two.
 
-## Switching is a separate phase
+## Validation result (2026-09-25): not a drop-in — kept Tyler's release
 
-Evaluating and switching to the public candidates above — including validating
-that the ONNX exports are numerically equivalent to what's used today, and
-deciding how (or whether) to handle the gated x-vector transform — is
-deliberately out of scope here. This note only records what's pinned today and
-what alternatives exist, so that future work doesn't have to redo the
-discovery.
+The two public candidates above were downloaded, hash-verified against the
+table, and inspected with `onnx` (Python) to compare their graph I/O against
+what `diarization/models.rs` hardcodes:
+
+| Model | Used today (input → output) | Public candidate (input → output) |
+|---|---|---|
+| Segmentation | `waveform` `[1,1,samples]` → `segmentation` `[1,frames,7]` | `input_values` `[batch,channels,samples]` → `logits` `[batch,frames,7]` |
+| Embedding | `fbank` `[1,t,128]`*(t,80 in practice)* → `embedding` `[256]` | `feats` `[B,T,80]` → `embs` `[B,256]` |
+
+Both public exports use different ONNX tensor names than the pinned files,
+even though the tensor shapes and roles line up. `models.rs` calls
+`ort::inputs!["waveform" => ...]` and `outputs.get("segmentation")` /
+`outputs.get("embedding")` by literal name, so it cannot load these files
+unmodified — and renaming/adapting the loader to match was explicitly out of
+scope for this decision (the point was to check whether the *existing* pinned
+contract has a direct public replacement, not to fork the loader per source).
+
+This was confirmed empirically, not just by reading the graph: running the
+existing `diarization::tests::diarize_sample` test (see `diarization/mod.rs`)
+against a model directory built from the public segmentation + public
+embedding models (keeping Tyler's `xvec_transform.npz`, since the pyannote
+x-vector transform is gated — see above) fails immediately:
+
+```
+thread 'diarization::tests::diarize_sample' panicked at frontend/src-tauri/src/diarization/mod.rs:1333:10:
+diarization failed: Invalid input name: waveform
+```
+
+For reference, the same test against the current (Tyler) three-file set on a
+~107s PT/FR/EN 3-speaker sample (`pt-fr-en.wav`, `num_speakers=3`) runs in
+~2.9s wall time and finds 3 speakers / 13 segments — this is the working
+baseline the public files were being checked against.
+
+**Decision: keep the current release-hosted assets.** `download.rs` and
+`frontend/src-tauri/resources/diarization/` are unchanged. A future switch
+would require either finding public exports that keep the original
+`waveform`/`segmentation` and `fbank`/`embedding` tensor names (unlikely,
+since these are re-exports of the same upstream models under different
+conversion tooling), or extending `models.rs` to probe/accept either name —
+which is a real code change with its own risk, not a config swap, and should
+get its own issue if it's ever pursued.
