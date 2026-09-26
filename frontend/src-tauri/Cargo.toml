@@ -1,6 +1,6 @@
 [package]
 name = "recmeetily"
-version = "0.3.0"
+version = "0.3.1"
 description = "RECMeetily: privacy-first local meeting recorder for macOS"
 authors = ["Felipe Cortes"]
 repository = "https://github.com/felipecortesp/RECMeetily"

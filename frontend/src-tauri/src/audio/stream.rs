@@ -2,7 +2,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{Device, Stream, SupportedStreamConfig};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use tokio::sync::mpsc;
 
 use super::devices::{AudioDevice, get_device_and_config};
@@ -12,6 +12,37 @@ use super::capture::{AudioCaptureBackend, get_current_backend};
 
 use super::capture::CoreAudioCapture;
 use super::recording_state::AudioError;
+
+/// Rate-limits a repeating log line so it fires once immediately, then at
+/// most once per `interval` afterwards, instead of on every call site.
+struct IdleLogger {
+    last_logged: Option<tokio::time::Instant>,
+    interval: tokio::time::Duration,
+}
+
+impl IdleLogger {
+    fn new(interval: tokio::time::Duration) -> Self {
+        Self {
+            last_logged: None,
+            interval,
+        }
+    }
+
+    /// Returns true if the caller should log now, and records that time.
+    fn should_log(&mut self, now: tokio::time::Instant) -> bool {
+        match self.last_logged {
+            None => {
+                self.last_logged = Some(now);
+                true
+            }
+            Some(last) if now.saturating_duration_since(last) >= self.interval => {
+                self.last_logged = Some(now);
+                true
+            }
+            Some(_) => false,
+        }
+    }
+}
 
 /// Stream backend implementation
 pub enum StreamBackend {
@@ -179,26 +210,40 @@ impl AudioStream {
                 let frames_per_chunk = 1024; // Process in chunks of 1024 samples
                 let mut terminal_error_reported = false;
 
+                // The Core Audio process tap only delivers samples while some
+                // process is actually outputting audio (see capture/core_audio.rs).
+                // Silence — no app playing anything — is a normal, expected state,
+                // not a stream failure, so a poll timeout is idle, not an error.
+                // Poll fairly often (see IDLE_POLL_TIMEOUT below) so an idle period
+                // is noticed promptly, but only log about it at most once per
+                // minute so idle recordings don't spam the log.
+                const IDLE_POLL_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(1);
+                const IDLE_LOG_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_secs(60);
+                let mut idle_logger = IdleLogger::new(IDLE_LOG_INTERVAL);
+
                 info!("✅ Stream: Core Audio processing task started for {}", device_name);
 
                 let mut _sample_count = 0u64;
                 loop {
-                    let sample = match tokio::time::timeout(
-                        tokio::time::Duration::from_secs(5),
-                        stream.next(),
-                    )
-                    .await
+                    let sample = match tokio::time::timeout(IDLE_POLL_TIMEOUT, stream.next()).await
                     {
                         Ok(Some(sample)) => sample,
                         Ok(None) => break,
                         Err(_) => {
-                            error!(
-                                "Core Audio stopped delivering callbacks for {}",
-                                device_name
-                            );
-                            state_for_stream.report_error(AudioError::ChannelClosed);
-                            terminal_error_reported = true;
-                            break;
+                            // Timed out waiting for a sample: the tap is idle
+                            // because nothing is playing audio right now. This
+                            // is not an error — keep polling and leave
+                            // buffer/frame_count untouched. Do not report
+                            // ChannelClosed here; only a genuine Ok(None)
+                            // end-of-stream (handled below/after the loop)
+                            // is terminal.
+                            if idle_logger.should_log(tokio::time::Instant::now()) {
+                                debug!(
+                                    "System audio tap idle (no process is playing audio); continuing for {}",
+                                    device_name
+                                );
+                            }
+                            continue;
                         }
                     };
                     let current_sample_rate = stream.sample_rate();
@@ -501,5 +546,44 @@ impl Drop for AudioStreamManager {
         if let Err(e) = self.stop_streams() {
             error!("Error stopping streams during drop: {}", e);
         }
+    }
+}
+
+#[cfg(test)]
+mod idle_logger_tests {
+    use super::IdleLogger;
+    use tokio::time::{Duration, Instant};
+
+    #[test]
+    fn logs_immediately_on_first_call() {
+        let mut logger = IdleLogger::new(Duration::from_secs(60));
+        let now = Instant::now();
+        assert!(logger.should_log(now));
+    }
+
+    #[test]
+    fn suppresses_calls_within_interval() {
+        let mut logger = IdleLogger::new(Duration::from_secs(60));
+        let t0 = Instant::now();
+        assert!(logger.should_log(t0));
+
+        // Well within the 60s window: should stay silent.
+        assert!(!logger.should_log(t0 + Duration::from_secs(1)));
+        assert!(!logger.should_log(t0 + Duration::from_secs(59)));
+    }
+
+    #[test]
+    fn logs_again_once_interval_elapses() {
+        let mut logger = IdleLogger::new(Duration::from_secs(60));
+        let t0 = Instant::now();
+        assert!(logger.should_log(t0));
+        assert!(!logger.should_log(t0 + Duration::from_secs(30)));
+
+        // At/after the interval boundary: should log again.
+        assert!(logger.should_log(t0 + Duration::from_secs(60)));
+
+        // And then go quiet again until the next interval.
+        assert!(!logger.should_log(t0 + Duration::from_secs(61)));
+        assert!(logger.should_log(t0 + Duration::from_secs(121)));
     }
 }

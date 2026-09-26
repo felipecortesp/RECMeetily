@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 - 2026-09-25
+
+### Fixed
+- Recording no longer stops with "Audio channel was closed unexpectedly" when no application is playing audio: the system-audio tap is idle in silence, which is now treated as normal. Microphone audio keeps recording and the system track is padded with silence.
+
 ## 0.3.0 - 2026-09-25
 
 ### RECMeetily: macOS-only, privacy-hardened fork
