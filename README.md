@@ -68,6 +68,7 @@ RECMeetily needs two permissions, both asked on first use:
 - **System Audio Recording** (to hear the other participants): if the app shows the banner "System Audio Permission Required", click **Open Audio Capture Settings**. macOS opens **System Settings > Privacy & Security > Screen & System Audio Recording**. In the **System Audio Recording Only** list, switch on **RECMeetily**. If it is not listed, click **+** and pick it from Applications.
 - Then **quit RECMeetily completely (Cmd+Q) and open it again**: the permission is read only at launch.
 - Play any audio (a video in the browser is enough) and click **Recheck** in the banner. The "System audio" indicator in the recording bar turns green.
+- The system-audio tap only delivers data while something is playing; silence during a recording is normal and is recorded as silence.
 
 No camera, screen content, location, contacts or calendar permissions are requested.
 
