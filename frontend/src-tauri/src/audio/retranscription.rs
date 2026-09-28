@@ -2,6 +2,7 @@
 
 use crate::audio::decoder::decode_audio_file;
 use crate::audio::vad::get_speech_chunks_with_thresholds_and_progress;
+use super::word_timing::{offset_words, WordTiming};
 use super::common::{create_transcript_segments, split_segment_at_silence, write_transcripts_json};
 use super::constants::AUDIO_EXTENSIONS;
 use crate::config::{DEFAULT_WHISPER_MODEL, DEFAULT_PARAKEET_MODEL};
@@ -182,6 +183,7 @@ struct RetranscriptionSource {
     path: PathBuf,
     label: &'static str,
     speaker_hint: Option<&'static str>,
+    source: Option<&'static str>,
     positive_threshold: f32,
     negative_threshold: f32,
 }
@@ -196,6 +198,7 @@ fn find_retranscription_sources(folder: &Path, fallback: &Path) -> Vec<Retranscr
             path: mic_path,
             label: "microphone",
             speaker_hint: Some("You"),
+            source: Some("mic"),
             positive_threshold: 0.20,
             negative_threshold: 0.10,
         });
@@ -203,6 +206,7 @@ fn find_retranscription_sources(folder: &Path, fallback: &Path) -> Vec<Retranscr
             path: system_path,
             label: "system audio",
             speaker_hint: Some("Guest"),
+            source: Some("system"),
             positive_threshold: 0.50,
             negative_threshold: 0.35,
         });
@@ -212,12 +216,17 @@ fn find_retranscription_sources(folder: &Path, fallback: &Path) -> Vec<Retranscr
             path: fallback.to_path_buf(),
             label: "mixed audio",
             speaker_hint: None,
+            source: None,
             positive_threshold: 0.50,
             negative_threshold: 0.35,
         });
     }
 
     sources
+}
+
+fn words_json(words: Option<&[WordTiming]>) -> Option<String> {
+    words.and_then(|w| serde_json::to_string(w).ok())
 }
 
 fn create_source_labeled_segments(
@@ -291,6 +300,7 @@ async fn run_retranscription<R: Runtime>(
         let meeting_id_for_vad = meeting_id.clone();
         let source_label = source.label;
         let speaker_hint = source.speaker_hint;
+        let track = source.source;
         let positive_threshold = source.positive_threshold;
         let negative_threshold = source.negative_threshold;
         let source_progress_span = 20.0 / source_count as f32;
@@ -330,7 +340,7 @@ async fn run_retranscription<R: Runtime>(
         speech_segments.extend(
             source_segments
                 .drain(..)
-                .map(|segment| (segment, speaker_hint)),
+                .map(|segment| (segment, speaker_hint, track)),
         );
     }
 
@@ -346,7 +356,7 @@ async fn run_retranscription<R: Runtime>(
     // Diagnostic: log segment duration distribution
     if !speech_segments.is_empty() {
         let durations_ms: Vec<f64> = speech_segments.iter()
-            .map(|(s, _)| s.end_timestamp_ms - s.start_timestamp_ms)
+            .map(|(s, _, _)| s.end_timestamp_ms - s.start_timestamp_ms)
             .collect();
         let total_speech_ms: f64 = durations_ms.iter().sum();
         let avg_duration = total_speech_ms / durations_ms.len() as f64;
@@ -359,7 +369,7 @@ async fn run_retranscription<R: Runtime>(
             (total_speech_ms / 1000.0 / duration_seconds) * 100.0
         );
         // Log first 10 segments for detailed inspection
-        for (i, (seg, speaker_hint)) in speech_segments.iter().take(10).enumerate() {
+        for (i, (seg, speaker_hint, _)) in speech_segments.iter().take(10).enumerate() {
             let dur = seg.end_timestamp_ms - seg.start_timestamp_ms;
             debug!("  Segment {}: {:.0}ms-{:.0}ms ({:.0}ms, {} samples, {:?})",
                 i, seg.start_timestamp_ms, seg.end_timestamp_ms, dur, seg.samples.len(), speaker_hint);
@@ -393,8 +403,8 @@ async fn run_retranscription<R: Runtime>(
     // for the lowest-energy window near the target split point and cut there.
     const MAX_SEGMENT_SAMPLES: usize = 25 * 16000; // 25 seconds at 16kHz
 
-    let mut processable_segments: Vec<(crate::audio::vad::SpeechSegment, Option<&'static str>)> = Vec::new();
-    for (segment, speaker_hint) in &speech_segments {
+    let mut processable_segments: Vec<(crate::audio::vad::SpeechSegment, Option<&'static str>, Option<&'static str>)> = Vec::new();
+    for (segment, speaker_hint, track) in &speech_segments {
         if segment.samples.len() > MAX_SEGMENT_SAMPLES {
             debug!(
                 "Splitting large segment ({:.0}ms, {} samples) at silence boundaries",
@@ -407,10 +417,10 @@ async fn run_retranscription<R: Runtime>(
             processable_segments.extend(
                 sub_segments
                     .into_iter()
-                    .map(|segment| (segment, *speaker_hint)),
+                    .map(|segment| (segment, *speaker_hint, *track)),
             );
         } else {
-            processable_segments.push((segment.clone(), *speaker_hint));
+            processable_segments.push((segment.clone(), *speaker_hint, *track));
         }
     }
 
@@ -420,9 +430,12 @@ async fn run_retranscription<R: Runtime>(
     // Process each speech segment with progress updates
     let mut all_transcripts: Vec<(String, f64, f64)> = Vec::new(); // (text, start_ms, end_ms)
     let mut speaker_hints: Vec<Option<&'static str>> = Vec::new();
+    // Parallel to all_transcripts: recording-relative word timings (Parakeet only).
+    let mut segment_sources: Vec<Option<&'static str>> = Vec::new();
+    let mut segment_words: Vec<Option<Vec<WordTiming>>> = Vec::new();
     let mut total_confidence = 0.0f32;
 
-    for (i, (segment, speaker_hint)) in processable_segments.iter().enumerate() {
+    for (i, (segment, speaker_hint, track)) in processable_segments.iter().enumerate() {
         // Check for cancellation before each segment
         if RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst) {
             return Err(anyhow!("Retranscription cancelled"));
@@ -451,13 +464,15 @@ async fn run_retranscription<R: Runtime>(
         }
 
         // Transcribe this segment
-        let (text, conf) = if use_parakeet {
+        let (text, conf, words) = if use_parakeet {
             let engine = parakeet_engine.as_ref().unwrap();
-            let text = engine
-                .transcribe_audio(segment.samples.clone())
+            let (text, words) = engine
+                .transcribe_audio_with_words(segment.samples.clone())
                 .await
                 .map_err(|e| anyhow!("Parakeet transcription failed on segment {}: {}", i, e))?;
-            (text, 0.9f32)
+            // Word times are relative to the segment; store them recording-relative.
+            let words = offset_words(&words, segment.start_timestamp_ms / 1000.0);
+            (text, 0.9f32, Some(words))
         } else {
             let engine = whisper_engine.as_ref().unwrap();
             let (text, conf, _) = engine
@@ -468,7 +483,7 @@ async fn run_retranscription<R: Runtime>(
                 )
                 .await
                 .map_err(|e| anyhow!("Whisper transcription failed on segment {}: {}", i, e))?;
-            (text, conf)
+            (text, conf, None)
         };
 
         // Skip empty transcripts
@@ -481,6 +496,8 @@ async fn run_retranscription<R: Runtime>(
             );
             all_transcripts.push((text, segment.start_timestamp_ms, segment.end_timestamp_ms));
             speaker_hints.push(*speaker_hint);
+            segment_words.push(words);
+            segment_sources.push(*track);
             total_confidence += conf;
         } else {
             debug!("Segment {}/{}: {:.1}s — empty transcription", i + 1, processable_count, segment_duration_sec);
@@ -553,10 +570,14 @@ async fn run_retranscription<R: Runtime>(
         .await
         .map_err(|e| anyhow!("Failed to delete existing transcripts: {}", e))?;
 
-    for segment in &segments {
+    // create_source_labeled_segments maps input transcripts 1:1 in order, so
+    // segment_words stays aligned with segments.
+    debug_assert_eq!(segments.len(), segment_words.len());
+    debug_assert_eq!(segments.len(), segment_sources.len());
+    for ((segment, words), track) in segments.iter().zip(&segment_words).zip(&segment_sources) {
         sqlx::query(
-            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration, speaker)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration, speaker, words, source)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(&segment.id)
         .bind(&meeting_id)
@@ -566,6 +587,8 @@ async fn run_retranscription<R: Runtime>(
         .bind(segment.audio_end_time)
         .bind(segment.duration)
         .bind(&segment.speaker)
+        .bind(words_json(words.as_deref()))
+        .bind(track)
         .execute(&mut *tx)
         .await
         .map_err(|e| anyhow!("Failed to insert transcript: {}", e))?;
@@ -1008,6 +1031,16 @@ mod tests {
         assert!(result.get("detected_summary_language").is_none());
     }
 
+    #[test]
+    fn words_json_serializes_some_and_maps_none_to_null() {
+        assert_eq!(words_json(None), None);
+        let words = [WordTiming { text: "hi".into(), start: 1.0, end: 1.5 }];
+        assert_eq!(
+            words_json(Some(&words)).as_deref(),
+            Some(r#"[{"text":"hi","start":1.0,"end":1.5}]"#)
+        );
+    }
+
     fn test_recording_start() -> DateTime<Utc> {
         DateTime::parse_from_rfc3339("2026-08-30T12:00:00Z")
             .unwrap()
@@ -1137,7 +1170,9 @@ mod tests {
 
         assert_eq!(sources.len(), 2);
         assert_eq!(sources[0].speaker_hint, Some("You"));
+        assert_eq!(sources[0].source, Some("mic"));
         assert_eq!(sources[1].speaker_hint, Some("Guest"));
+        assert_eq!(sources[1].source, Some("system"));
     }
 
     #[test]
@@ -1148,6 +1183,7 @@ mod tests {
 
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].speaker_hint, None);
+        assert_eq!(sources[0].source, None);
     }
 
     #[test]

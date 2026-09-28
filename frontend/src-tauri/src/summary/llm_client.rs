@@ -446,6 +446,19 @@ mod claude_output_tests {
     }
 
     #[tokio::test]
+    async fn migrations_add_transcript_words_and_source_columns() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let columns: Vec<String> = sqlx::query_scalar("SELECT name FROM pragma_table_info('transcripts')")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert!(columns.iter().any(|c| c == "words"));
+        assert!(columns.iter().any(|c| c == "source"));
+        assert!(!include_bytes!("../../migrations/20260928000000_add_transcript_words_and_source.sql").contains(&b'\r'));
+    }
+
+    #[tokio::test]
     async fn summary_output_setting_round_trips_and_clears() {
         use crate::database::repositories::setting::SettingsRepository;
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
