@@ -227,6 +227,25 @@ impl TranscriptsRepository {
     }
 }
 
+/// Wall-clock start of a meeting's recording: the folder metadata when present
+/// (stable across reruns), else the meeting's stored creation time. Returns
+/// `(effective, stored)` so callers can repair a drifted `created_at`.
+pub(crate) async fn recording_started_at(
+    pool: &SqlitePool,
+    meeting_id: &str,
+    folder_path: Option<&str>,
+) -> Result<(DateTime<Utc>, DateTime<Utc>), SqlxError> {
+    let stored: crate::database::models::DateTimeUtc =
+        sqlx::query_scalar("SELECT created_at FROM meetings WHERE id = ?")
+            .bind(meeting_id)
+            .fetch_one(pool)
+            .await?;
+    let effective = folder_path
+        .and_then(crate::api::recording_started_at_from_folder)
+        .unwrap_or(stored.0);
+    Ok((effective, stored.0))
+}
+
 pub(crate) fn timestamp_from_offset(
     recording_started_at: DateTime<Utc>,
     offset_seconds: f64,

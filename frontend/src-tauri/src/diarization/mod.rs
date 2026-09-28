@@ -14,6 +14,7 @@
 //!
 //! Models live install-locally in `<install>/data/models/diarization`.
 
+pub mod assign;
 pub mod clustering;
 pub mod download;
 pub mod dsp;
@@ -629,39 +630,6 @@ fn find_meeting_audio(folder_path: Option<String>, meeting_title: Option<&str>) 
     newest_audio_in(&crate::paths::install_data_root())
 }
 
-fn apply_source_track_hint(
-    existing: Option<&str>,
-    used_source_tracks: bool,
-    allow_remote_hint: bool,
-    labels: &mut Vec<String>,
-) {
-    if !used_source_tracks {
-        return;
-    }
-    match existing {
-        Some(speaker) if speaker.eq_ignore_ascii_case("you") => {
-            labels.retain(|label| !label.eq_ignore_ascii_case("you"));
-            labels.insert(0, "You".to_string());
-        }
-        Some(speaker) if allow_remote_hint && speaker.eq_ignore_ascii_case("guest") => {
-            let has_remote = labels.iter().any(|label| {
-                !label.eq_ignore_ascii_case("you") && !label.eq_ignore_ascii_case("guest")
-            });
-            if !has_remote && !labels.iter().any(|label| label.eq_ignore_ascii_case("guest")) {
-                labels.push("Guest".to_string());
-            }
-        }
-        _ => {}
-    }
-    if let Some(position) = labels
-        .iter()
-        .position(|label| label.eq_ignore_ascii_case("you"))
-    {
-        let user = labels.remove(position);
-        labels.insert(0, user);
-    }
-}
-
 /// Decode any supported audio container to a temporary 16 kHz mono WAV using
 /// the bundled ffmpeg. Returns the original path unchanged if it's already WAV.
 fn ensure_wav(path: &Path) -> Result<(PathBuf, bool)> {
@@ -736,6 +704,7 @@ pub async fn diarize_meeting(
         None => (None, None),
     };
 
+    let meeting_folder = folder_path.clone();
     let source = match audio_path {
         Some(p) => PathBuf::from(p),
         None => find_meeting_audio(folder_path, title.as_deref()).ok_or_else(|| {
@@ -883,13 +852,26 @@ pub async fn diarize_meeting(
 
     // Load transcript segments with their recording-relative timings, plus any
     // label they already carry from live diarization.
-    let rows: Vec<(String, Option<f64>, Option<f64>, Option<String>)> = sqlx::query_as(
-        "SELECT id, audio_start_time, audio_end_time, speaker FROM transcripts WHERE meeting_id = ?",
-    )
-    .bind(&meeting_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("Failed to read transcripts: {}", e))?;
+    let raw_rows: Vec<(String, Option<f64>, Option<f64>, Option<String>, Option<String>, Option<String>)> =
+        sqlx::query_as(
+            "SELECT id, audio_start_time, audio_end_time, speaker, words, source \
+             FROM transcripts WHERE meeting_id = ?",
+        )
+        .bind(&meeting_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Failed to read transcripts: {}", e))?;
+    let rows: Vec<assign::RowInput> = raw_rows
+        .into_iter()
+        .map(|(id, start, end, speaker, words, source)| {
+            let words = words.and_then(|json| {
+                serde_json::from_str(&json)
+                    .map_err(|_| log::debug!("Ignoring malformed word timings on row {id}"))
+                    .ok()
+            });
+            assign::RowInput { id, start, end, speaker, words, source }
+        })
+        .collect();
 
     // Work out which of the freshly-clustered speakers is the local user.
     //
@@ -899,13 +881,14 @@ pub async fn diarize_meeting(
     // speaker covers the most time that was previously marked "You" is the user.
     let user_ranges: Vec<(f32, f32)> = rows
         .iter()
-        .filter(|(_, _, _, spk)| {
-            spk.as_deref()
+        .map(|r| (r.start, r.end, r.speaker.as_deref()))
+        .filter(|(_, _, spk)| {
+            spk
                 .map(|s| s.eq_ignore_ascii_case("you"))
                 .unwrap_or(false)
         })
-        .filter_map(|(_, s, e, _)| match (s, e) {
-            (Some(s), Some(e)) if e > s => Some((*s as f32, *e as f32)),
+        .filter_map(|(s, e, _)| match (s, e) {
+            (Some(s), Some(e)) if e > s => Some((s as f32, e as f32)),
             _ => None,
         })
         .collect();
@@ -936,136 +919,40 @@ pub async fn diarize_meeting(
         log::info!("🧑‍🤝‍🧑 Speaker {} identified as the local user", u + 1);
     }
 
-    // Assign each transcript from the offline source-track result. Custom names
-    // are preserved, but transient live labels (You/Guest/Speaker N) are refined.
-    // If multiple source-track speakers overlap the transcript, persist a label
-    // such as "You + Speaker 1" instead of falsely choosing only one voice.
-    let mut assignments: Vec<(String, String)> = Vec::new();
-    let mut updates: Vec<(String, Option<String>)> = Vec::new();
-    let mut preserved = 0u32;
-    for (id, start, end, existing) in rows {
-        if let Some(ref live) = existing {
-            let live_trim = live.trim();
-            if !live_trim.is_empty() {
-                let is_generated = live_trim.split(" + ").all(|part| {
-                    part.eq_ignore_ascii_case("guest")
-                        || part.eq_ignore_ascii_case("you")
-                        || part.to_ascii_lowercase().starts_with("speaker ")
-                });
-                let is_named = !is_generated;
-                if is_named {
-                    preserved += 1;
-                    assignments.push((id, live_trim.to_string()));
-                    continue;
-                }
-            }
-        }
-
-        let (s, e) = match (start, end) {
-            (Some(s), Some(e)) if e > s => (s as f32, e as f32),
-            _ => {
-                updates.push((id, None));
-                continue;
-            }
-        };
-
-        let mut overlap_by_speaker: std::collections::HashMap<usize, f32> =
-            std::collections::HashMap::new();
-        for seg in &result.segments {
-            let ov = seg.end.min(e) - seg.start.max(s);
-            if ov > 0.0 {
-                *overlap_by_speaker.entry(seg.speaker).or_insert(0.0) += ov;
-            }
-        }
-
-        if !overlap_by_speaker.is_empty() {
-            let max_overlap = overlap_by_speaker
-                .values()
-                .copied()
-                .fold(0.0f32, f32::max);
-            // Keep genuine simultaneous speakers while dropping tiny boundary
-            // touches. 20% of the strongest overlap (min 80 ms) is meaningful.
-            let cutoff = (max_overlap * 0.20).max(0.08);
-            let mut speakers: Vec<(usize, f32)> = overlap_by_speaker.into_iter().collect();
-            speakers.sort_by(|a, b| {
-                b.1.partial_cmp(&a.1)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            if let Some(&(primary, _)) = speakers.first() {
-                speakers.retain(|(speaker, overlap)| {
-                    *speaker == primary
-                        || (*overlap >= cutoff
-                            && result.segments.iter().any(|a| {
-                                a.speaker == *speaker
-                                    && result.segments.iter().any(|b| {
-                                        b.speaker != a.speaker
-                                            && a.end.min(b.end).min(e)
-                                                - a.start.max(b.start).max(s)
-                                                >= 0.08
-                                    })
-                            }))
-                });
-            }
-
-            let speaker_label = |spk: usize| -> String {
-                if Some(spk) == user_speaker {
-                    return "You".to_string();
-                }
-                // Keep remote numbering compact when the user owns a cluster.
-                let display = match user_speaker {
-                    Some(user) if spk > user => spk,
-                    _ => spk + 1,
-                };
-                format!("Speaker {}", display)
-            };
-
-            let mut labels: Vec<String> = speakers
-                .into_iter()
-                .take(3)
-                .map(|(spk, _)| speaker_label(spk))
-                .collect();
-            apply_source_track_hint(
-                existing.as_deref(),
-                used_source_tracks,
-                allow_remote_source_hint,
-                &mut labels,
-            );
-            labels.dedup();
-            labels.truncate(3);
-            let label = labels.join(" + ");
-            if label.is_empty() {
-                continue;
-            }
-            updates.push((id.clone(), Some(label.clone())));
-            assignments.push((id, label));
-        } else {
-            let source_hint = existing
+    // Label each transcript row from the offline result. Dual-track rows only
+    // see turns of their own track, and rows with word timings are split at
+    // speaker changes. Custom names are kept and propagated to their cluster.
+    let preserved = rows
+        .iter()
+        .filter(|r| {
+            r.speaker
                 .as_deref()
-                .filter(|speaker| {
-                    used_source_tracks
-                        && (speaker.eq_ignore_ascii_case("you")
-                            || (allow_remote_source_hint
-                                && speaker.eq_ignore_ascii_case("guest")))
-                })
-                .map(str::to_string);
-            if let Some(ref label) = source_hint {
-                assignments.push((id.clone(), label.clone()));
-            }
-            updates.push((id, source_hint));
-        }
-    }
+                .map(|s| assign::is_named(s))
+                .unwrap_or(false)
+        })
+        .count();
+    let turns = split::turns_from_segments(&result.segments);
+    let plans = assign::plan_rows(
+        rows,
+        &turns,
+        user_speaker,
+        used_source_tracks,
+        allow_remote_source_hint,
+    );
+    let (recording_started_at, _) = crate::database::repositories::transcript::recording_started_at(
+        pool,
+        &meeting_id,
+        meeting_folder.as_deref(),
+    )
+    .await
+    .map_err(|e| format!("Failed to load meeting recording start: {e}"))?;
     let mut tx = pool
         .begin()
         .await
         .map_err(|e| format!("Failed to begin speaker update: {e}"))?;
-    for (id, label) in updates {
-        sqlx::query("UPDATE transcripts SET speaker = ? WHERE id = ?")
-            .bind(label)
-            .bind(id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| format!("Failed to save speaker label: {e}"))?;
-    }
+    let assignments = assign::apply_plans(&mut tx, &meeting_id, recording_started_at, plans)
+        .await
+        .map_err(|e| format!("Failed to save speaker labels: {e}"))?;
     tx.commit()
         .await
         .map_err(|e| format!("Failed to commit speaker labels: {e}"))?;
@@ -1197,46 +1084,6 @@ fn collect_turns(models: &mut DiarizationModels, samples: &[f32]) -> Result<Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn dual_track_user_hint_survives_missing_mic_segmentation() {
-        let mut labels = vec!["Speaker 1".to_string()];
-        apply_source_track_hint(Some("You"), true, true, &mut labels);
-
-        assert_eq!(labels, vec!["You", "Speaker 1"]);
-    }
-
-    #[test]
-    fn remote_hint_keeps_user_overlap_when_remote_segmentation_misses() {
-        let mut labels = vec!["You".to_string()];
-        apply_source_track_hint(Some("Guest"), true, true, &mut labels);
-
-        assert_eq!(labels, vec!["You", "Guest"]);
-    }
-
-    #[test]
-    fn dual_track_overlap_keeps_you_first_after_remote_clustering() {
-        let mut labels = vec!["Speaker 1".to_string(), "You".to_string()];
-        apply_source_track_hint(Some("Guest"), true, true, &mut labels);
-
-        assert_eq!(labels, vec!["You", "Speaker 1"]);
-    }
-
-    #[test]
-    fn mixed_recording_does_not_trust_source_hint() {
-        let mut labels = vec!["Speaker 1".to_string()];
-        apply_source_track_hint(Some("You"), false, true, &mut labels);
-
-        assert_eq!(labels, vec!["Speaker 1"]);
-    }
-
-    #[test]
-    fn explicit_solo_count_suppresses_remote_source_hint() {
-        let mut labels = vec!["You".to_string()];
-        apply_source_track_hint(Some("Guest"), true, false, &mut labels);
-
-        assert_eq!(labels, vec!["You"]);
-    }
 
     /// Headless evaluation of the diarization pipeline against a real
     /// recording. Skipped unless both env vars are set, e.g.:

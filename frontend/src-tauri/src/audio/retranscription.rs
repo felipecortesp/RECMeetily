@@ -6,7 +6,6 @@ use super::word_timing::{offset_words, WordTiming};
 use super::common::{create_transcript_segments, split_segment_at_silence, write_transcripts_json};
 use super::constants::AUDIO_EXTENSIONS;
 use crate::config::{DEFAULT_WHISPER_MODEL, DEFAULT_PARAKEET_MODEL};
-use crate::database::models::DateTimeUtc;
 use crate::database::repositories::vocabulary::VocabularyRepository;
 use crate::parakeet_engine::ParakeetEngine;
 use crate::state::AppState;
@@ -530,14 +529,13 @@ async fn run_retranscription<R: Runtime>(
 
     // Wrap delete+insert+update in a transaction to prevent data loss
     let pool = app_state.db_manager.pool();
-    let stored_recording_start: DateTimeUtc =
-        sqlx::query_scalar("SELECT created_at FROM meetings WHERE id = ?")
-            .bind(&meeting_id)
-            .fetch_one(pool)
-            .await
-            .map_err(|e| anyhow!("Failed to load meeting recording start: {}", e))?;
-    let recording_started_at = crate::api::recording_started_at_from_folder(&meeting_folder_path)
-        .unwrap_or(stored_recording_start.0);
+    let (recording_started_at, stored_recording_start) = crate::database::repositories::transcript::recording_started_at(
+        pool,
+        &meeting_id,
+        Some(&meeting_folder_path),
+    )
+    .await
+    .map_err(|e| anyhow!("Failed to load meeting recording start: {}", e))?;
 
     // Reconstructed timestamps must remain stable across repeated runs.
     let segments =
@@ -548,7 +546,7 @@ async fn run_retranscription<R: Runtime>(
         .await
         .map_err(|e| anyhow!("Failed to start transaction: {}", e))?;
 
-    if recording_started_at != stored_recording_start.0 {
+    if recording_started_at != stored_recording_start {
         sqlx::query("UPDATE meetings SET created_at = ? WHERE id = ?")
             .bind(recording_started_at)
             .bind(&meeting_id)
