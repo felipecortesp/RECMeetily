@@ -64,17 +64,35 @@ pub(super) fn is_named(label: &str) -> bool {
     !t.is_empty() && !t.split(" + ").all(is_generated_part)
 }
 
+/// Rows that predate the `source` column are classified by label in dual mode:
+/// only mic rows are ever labeled "You", so every other label (Guest,
+/// "Speaker N", renamed remote speakers, combined labels) came from the system
+/// track.
 fn row_track(row: &RowInput, used_source_tracks: bool) -> Track {
     match row.source.as_deref() {
         Some("mic") => return Track::Mic,
         Some("system") => return Track::System,
         _ => {}
     }
-    match row.speaker.as_deref() {
-        Some(s) if used_source_tracks && s.eq_ignore_ascii_case("you") => Track::Mic,
-        Some(s) if used_source_tracks && s.eq_ignore_ascii_case("guest") => Track::System,
+    if !used_source_tracks {
+        return Track::Any;
+    }
+    match row.speaker.as_deref().map(str::trim) {
+        Some(s) if s.eq_ignore_ascii_case("you") => Track::Mic,
+        Some(s) if !s.is_empty() => Track::System,
         _ => Track::Any,
     }
+}
+
+fn is_you_label(label: Option<&str>) -> bool {
+    label.map_or(false, |l| l.trim().eq_ignore_ascii_case("you"))
+}
+
+/// A cluster's vote for its label: keep the generated one, or inherit a name.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Vote {
+    Keep,
+    Name(String),
 }
 
 fn valid_times(row: &RowInput) -> Option<(f64, f64)> {
@@ -117,6 +135,7 @@ pub fn plan_rows(
         turns: Vec<Turn>,
         /// Existing custom name when it is a single name (no " + ").
         own_name: Option<String>,
+        is_you: bool,
         dominant: Option<usize>,
     }
 
@@ -134,32 +153,49 @@ pub fn plan_rows(
                 .map(str::trim)
                 .filter(|l| is_named(l) && !l.contains(" + "))
                 .map(str::to_string);
-            let dominant = match (&own_name, times) {
-                (Some(_), Some((s, e))) => speakers_for_interval(s, e, &turns).first().copied(),
+            let is_you = is_you_label(row.speaker.as_deref());
+            let dominant = match (own_name.is_some() || is_you, times) {
+                (true, Some((s, e))) => speakers_for_interval(s, e, &turns).first().copied(),
                 _ => None,
             };
-            Prepared { row, track, times, turns, own_name, dominant }
+            Prepared { row, track, times, turns, own_name, is_you, dominant }
         })
         .collect();
 
-    // Each cluster inherits the custom name that covers most of its seconds.
-    let mut votes: HashMap<usize, BTreeMap<String, f64>> = HashMap::new();
+    // Each cluster inherits the custom name that covers most of its seconds,
+    // unless "You" rows (Vote::Keep) cover at least as many.
+    let mut votes: HashMap<usize, BTreeMap<Vote, f64>> = HashMap::new();
     for p in &prepared {
-        if let (Some(name), Some(cluster), Some((s, e))) = (&p.own_name, p.dominant, p.times) {
-            *votes.entry(cluster).or_default().entry(name.clone()).or_default() += e - s;
-        }
+        let (Some(cluster), Some((s, e))) = (p.dominant, p.times) else { continue };
+        let vote = if p.is_you {
+            Vote::Keep
+        } else if let Some(name) = &p.own_name {
+            // The user's cluster only takes names from their own track (a renamed
+            // user); remote names overlapping it are cross-track leakage.
+            if used_source_tracks && Some(cluster) == user_speaker && p.track != Track::Mic {
+                continue;
+            }
+            Vote::Name(name.clone())
+        } else {
+            continue;
+        };
+        *votes.entry(cluster).or_default().entry(vote).or_default() += e - s;
     }
     let inherited: HashMap<usize, String> = votes
         .into_iter()
         .filter_map(|(cluster, names)| {
-            // BTreeMap iterates names ascending, so strict `>` keeps the smaller on ties.
-            let mut best: Option<(String, f64)> = None;
-            for (name, secs) in names {
+            // BTreeMap iterates Keep first, then names ascending, so strict `>`
+            // keeps Keep (then the smaller name) on ties.
+            let mut best: Option<(Vote, f64)> = None;
+            for (vote, secs) in names {
                 if best.as_ref().map_or(true, |(_, b)| secs > *b) {
-                    best = Some((name, secs));
+                    best = Some((vote, secs));
                 }
             }
-            best.map(|(name, _)| (cluster, name))
+            match best {
+                Some((Vote::Name(name), _)) => Some((cluster, name)),
+                _ => None,
+            }
         })
         .collect();
 
@@ -181,7 +217,7 @@ pub fn plan_rows(
     prepared
         .into_iter()
         .map(|p| {
-            let Prepared { row, track, times, turns: row_turns, own_name, dominant } = p;
+            let Prepared { row, track, times, turns: row_turns, own_name, dominant, .. } = p;
             let existing = row.speaker.as_deref().map(str::trim).filter(|l| !l.is_empty());
             let named = existing.map_or(false, is_named);
             let Some((start, end)) = times else {
@@ -587,6 +623,86 @@ mod tests {
             true,
         );
         assert_eq!(speaker_of(&plans[0]).as_deref(), Some("Speaker 1"));
+    }
+
+    #[test]
+    fn legacy_named_rows_are_system_track_in_dual_mode() {
+        // Mic speech (cluster 0) is longer than the remote speech on the row.
+        let turns = [turn(0.0, 10.0, 0), turn(0.0, 6.0, 1), turn(20.0, 30.0, 0)];
+        let plans = plan_rows(
+            vec![
+                row("a", 0.0, 10.0, Some("Matheus"), None),
+                row("b", 20.0, 30.0, Some("You"), None),
+            ],
+            &turns,
+            Some(0),
+            true,
+            true,
+        );
+        assert_eq!(speaker_of(&plans[0]).as_deref(), Some("Matheus"));
+        assert_eq!(speaker_of(&plans[1]).as_deref(), Some("You"));
+    }
+
+    #[test]
+    fn user_cluster_does_not_inherit_remote_name() {
+        let turns = [
+            turn(0.0, 10.0, 0),
+            turn(10.0, 20.0, 0),
+            turn(20.0, 30.0, 0),
+            turn(30.0, 40.0, 0),
+            turn(30.0, 40.0, 1),
+            turn(40.0, 50.0, 2),
+        ];
+        let plans = plan_rows(
+            vec![
+                row("y1", 0.0, 10.0, Some("You"), None),
+                row("y2", 10.0, 20.0, Some("You"), None),
+                row("y3", 20.0, 30.0, Some("You"), None),
+                // Remote rows whose times overlap mic speech.
+                row("m1", 5.0, 15.0, Some("Matheus"), None),
+                row("m2", 30.0, 40.0, Some("Matheus"), None),
+                row("j1", 40.0, 50.0, Some("Johonnatan"), None),
+            ],
+            &turns,
+            Some(0),
+            true,
+            true,
+        );
+        for i in 0..3 {
+            assert_eq!(speaker_of(&plans[i]).as_deref(), Some("You"));
+        }
+        assert_eq!(speaker_of(&plans[4]).as_deref(), Some("Matheus"));
+        assert_eq!(speaker_of(&plans[5]).as_deref(), Some("Johonnatan"));
+    }
+
+    #[test]
+    fn keep_vote_beats_smaller_name_vote() {
+        let turns = [turn(0.0, 20.0, 0)];
+        let plans = plan_rows(
+            vec![
+                row("a", 0.0, 10.0, Some("You"), None),
+                row("b", 10.0, 13.0, Some("Carol"), None),
+                row("c", 13.0, 20.0, Some("Speaker 1"), None),
+            ],
+            &turns,
+            Some(0),
+            false,
+            true,
+        );
+        assert_eq!(speaker_of(&plans[2]).as_deref(), Some("You"));
+
+        let plans = plan_rows(
+            vec![
+                row("a", 0.0, 3.0, Some("You"), None),
+                row("b", 3.0, 13.0, Some("Carol"), None),
+                row("c", 13.0, 20.0, Some("Speaker 1"), None),
+            ],
+            &turns,
+            Some(0),
+            false,
+            true,
+        );
+        assert_eq!(speaker_of(&plans[2]).as_deref(), Some("Carol"));
     }
 
     #[tokio::test]
