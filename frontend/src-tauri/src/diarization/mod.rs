@@ -19,6 +19,7 @@ pub mod download;
 pub mod dsp;
 pub mod models;
 pub mod online;
+pub mod split;
 pub mod voiceprint;
 
 use anyhow::{anyhow, Result};
