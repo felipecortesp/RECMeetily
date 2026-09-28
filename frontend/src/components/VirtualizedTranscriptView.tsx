@@ -32,6 +32,7 @@ import { ConfidenceIndicator } from "./ConfidenceIndicator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { motion } from "framer-motion";
 import { TranscriptSegmentData } from "@/types";
+import { displaySpeaker, isUserSpeaker, speakerKey } from "@/lib/speaker-labels";
 
 export interface VirtualizedTranscriptViewProps {
     /** Transcript segments to display */
@@ -95,31 +96,6 @@ function cleanStopWords(text: string): string {
 }
 
 // Memoized transcript segment component
-/**
- * Turn a raw speaker label into what the user should read.
- *
- * Diarization emits the bare marker "You" for whichever voice arrives on the
- * local microphone. The display name lives in settings (not in Rust) so it can
- * be changed without restarting, which is why substitution happens here.
- */
-function isUserSpeaker(speaker?: string): boolean {
-    const normalized = speaker?.trim() ?? '';
-    return /^you\b/i.test(normalized) || /\(\s*you\s*\)$/i.test(normalized);
-}
-
-function displaySpeaker(speaker: string, userName: string): string {
-    if (isUserSpeaker(speaker)) {
-        return userName ? `${userName} (You)` : 'You';
-    }
-    return speaker;
-}
-
-/** Normalize speaker keys so "You" / "you" / empty compare cleanly. */
-function speakerKey(speaker?: string): string {
-    if (isUserSpeaker(speaker)) return '__you__';
-    return (speaker ?? '').trim().toLowerCase() || '__unknown__';
-}
-
 const speakerDotPalette = [
     'bg-purple-500',
     'bg-emerald-500',
