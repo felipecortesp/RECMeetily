@@ -542,6 +542,30 @@ impl ParakeetEngine {
         Ok(result.text)
     }
 
+    /// Like `transcribe_audio`, but also returns word timings relative to the start of `audio_data`.
+    pub async fn transcribe_audio_with_words(
+        &self,
+        audio_data: Vec<f32>,
+    ) -> Result<(String, Vec<crate::audio::word_timing::WordTiming>)> {
+        let mut model_guard = self.current_model.write().await;
+        let model = model_guard
+            .as_mut()
+            .ok_or_else(|| anyhow!("No Parakeet model loaded. Please load a model first."))?;
+
+        let audio_duration = audio_data.len() as f64 / 16000.0; // Assuming 16kHz
+
+        let result = model
+            .transcribe_samples(audio_data)
+            .map_err(|e| anyhow!("Parakeet transcription failed: {}", e))?;
+
+        let words = crate::audio::word_timing::words_from_tokens(
+            &result.tokens,
+            &result.timestamps,
+            audio_duration,
+        );
+        Ok((result.text, words))
+    }
+
     /// Get the models directory path
     pub async fn get_models_directory(&self) -> PathBuf {
         self.models_dir.clone()
