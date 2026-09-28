@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2 - 2026-09-28
+
+### Fixed
+- Transcript rows labeled with several speakers at once (for example "You + Speaker 1") are no longer shown as your own lines. They now display every speaker in the label, on the participants' side, with their own color.
+- Renaming a speaker now also renames that speaker inside combined labels ("You + Speaker 1" becomes "You + Ana" when Speaker 1 is renamed to Ana). Only whole names match: renaming "Speaker 1" never touches "Speaker 12".
+
 ## 0.3.1 - 2026-09-25
 
 ### Fixed

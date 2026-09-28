@@ -398,7 +398,14 @@ impl PeopleRepository {
                 .bind(from)
                 .execute(&mut *tx)
                 .await?;
-        let count = result.rows_affected();
+        let exact_count = result.rows_affected();
+        // Combined labels ("You + Speaker 1") hold `from` as one of several
+        // whole " + "-separated parts when offline diarization found more than
+        // one source-track voice in a row. Those need the same rename or they
+        // silently keep showing the old label (meetily-actuallyfree#16).
+        let combined_count =
+            rename_combined_speaker_parts(&mut tx, meeting_id, from, &resolved_to).await?;
+        let count = exact_count + combined_count;
 
         if removed_name {
             sqlx::query("DELETE FROM person_speakers WHERE meeting_id = ? AND speaker_label = ?")
@@ -407,7 +414,7 @@ impl PeopleRepository {
                 .execute(&mut *tx)
                 .await?;
             delete_orphan_people(&mut tx).await?;
-        } else if count > 0 {
+        } else if exact_count > 0 {
             Self::reconcile_speaker_identity(&mut tx, meeting_id, from, &resolved_to).await?;
         }
         tx.commit().await?;
@@ -656,6 +663,49 @@ async fn next_available_speaker_label(
         }
     }
     unreachable!("positive speaker labels are unbounded")
+}
+
+/// Rewrites combined labels (e.g. "You + Speaker 1") where `from` appears as a
+/// whole " + "-separated part, replacing just that part with `to`. Matching is
+/// on whole parts only, so "Speaker 1" never touches "Speaker 12". Returns the
+/// number of transcript rows updated.
+async fn rename_combined_speaker_parts(
+    tx: &mut Transaction<'_, Sqlite>,
+    meeting_id: &str,
+    from: &str,
+    to: &str,
+) -> Result<u64, sqlx::Error> {
+    let combined_labels: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT speaker FROM transcripts WHERE meeting_id = ? AND speaker LIKE '% + %'",
+    )
+    .bind(meeting_id)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut total = 0u64;
+    for label in combined_labels {
+        let mut parts: Vec<&str> = label.split(" + ").collect();
+        let mut changed = false;
+        for part in parts.iter_mut() {
+            if *part == from {
+                *part = to;
+                changed = true;
+            }
+        }
+        if !changed {
+            continue;
+        }
+        let new_label = parts.join(" + ");
+        let result =
+            sqlx::query("UPDATE transcripts SET speaker = ? WHERE meeting_id = ? AND speaker = ?")
+                .bind(&new_label)
+                .bind(meeting_id)
+                .bind(&label)
+                .execute(&mut **tx)
+                .await?;
+        total += result.rows_affected();
+    }
+    Ok(total)
 }
 
 pub(crate) fn visible_summary_text(raw: &str) -> Option<String> {
@@ -961,8 +1011,8 @@ async fn find_person_by_normalized_name(
 mod tests {
     use super::{
         build_person_context, clear_meeting_speaker_mappings, escape_like, is_person_name,
-        normalize_person_name, visible_summary_text, PeopleRepository, PersonContextMeeting,
-        PersonContextMessage, PERSON_CONTEXT_CHARS,
+        normalize_person_name, rename_combined_speaker_parts, visible_summary_text,
+        PeopleRepository, PersonContextMeeting, PersonContextMessage, PERSON_CONTEXT_CHARS,
     };
 
     #[test]
@@ -1323,5 +1373,118 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(people_count, 1);
+    }
+
+    #[tokio::test]
+    async fn rename_meeting_speaker_rewrites_the_part_inside_combined_labels() {
+        // "You + Speaker 1" is what offline diarization persists when several
+        // source-track speakers overlap one transcript row
+        // (src-tauri/src/diarization/mod.rs). Renaming "Speaker 1" must reach
+        // those rows too, not just the exact-match "Speaker 1" rows.
+        let pool = sqlx::SqlitePool::connect(":memory:").await.unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE people (id TEXT PRIMARY KEY, display_name TEXT NOT NULL, \
+                 normalized_name TEXT NOT NULL UNIQUE, notes TEXT, created_at TEXT NOT NULL, \
+                 updated_at TEXT NOT NULL); \
+             CREATE TABLE person_speakers (person_id TEXT NOT NULL, meeting_id TEXT NOT NULL, \
+                 speaker_label TEXT NOT NULL, UNIQUE(meeting_id, speaker_label)); \
+             CREATE TABLE transcripts (id TEXT PRIMARY KEY, meeting_id TEXT NOT NULL, speaker TEXT); \
+             INSERT INTO transcripts (id, meeting_id, speaker) VALUES \
+                 ('t1', 'm1', 'Speaker 1'), \
+                 ('t2', 'm1', 'You + Speaker 1'), \
+                 ('t3', 'm1', 'You + Speaker 1'), \
+                 ('t4', 'm1', 'Speaker 1 + Speaker 2'), \
+                 ('t5', 'm1', 'Speaker 12'), \
+                 ('t6', 'm1', 'Speaker 2');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let outcome = PeopleRepository::rename_meeting_speaker(&pool, "m1", "Speaker 1", "Johonnatan")
+            .await
+            .unwrap();
+
+        // 1 exact "Speaker 1" row + 2 "You + Speaker 1" rows + 1
+        // "Speaker 1 + Speaker 2" row = 4. "Speaker 12" and "Speaker 2" are
+        // untouched, so they must not be counted.
+        assert_eq!(outcome.count, 4);
+        assert_eq!(outcome.speaker, "Johonnatan");
+
+        let speakers: Vec<(String, String)> = sqlx::query_as(
+            "SELECT id, speaker FROM transcripts WHERE meeting_id = 'm1' ORDER BY id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        let by_id: std::collections::HashMap<_, _> = speakers.into_iter().collect();
+        assert_eq!(by_id["t1"], "Johonnatan");
+        assert_eq!(by_id["t2"], "You + Johonnatan");
+        assert_eq!(by_id["t3"], "You + Johonnatan");
+        assert_eq!(by_id["t4"], "Johonnatan + Speaker 2");
+        assert_eq!(by_id["t5"], "Speaker 12");
+        assert_eq!(by_id["t6"], "Speaker 2");
+    }
+
+    #[tokio::test]
+    async fn combined_label_rewrite_matches_whole_parts_only() {
+        let pool = sqlx::SqlitePool::connect(":memory:").await.unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE transcripts (id TEXT PRIMARY KEY, meeting_id TEXT NOT NULL, speaker TEXT); \
+             INSERT INTO transcripts (id, meeting_id, speaker) VALUES \
+                 ('t1', 'm1', 'You + Speaker 12'), \
+                 ('t2', 'm1', 'You + Speaker 1');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let mut tx = pool.begin().await.unwrap();
+
+        let count = rename_combined_speaker_parts(&mut tx, "m1", "Speaker 1", "Johonnatan")
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        assert_eq!(count, 1);
+        let speakers: Vec<(String, String)> =
+            sqlx::query_as("SELECT id, speaker FROM transcripts ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        let by_id: std::collections::HashMap<_, _> = speakers.into_iter().collect();
+        assert_eq!(by_id["t1"], "You + Speaker 12");
+        assert_eq!(by_id["t2"], "You + Johonnatan");
+    }
+
+    #[tokio::test]
+    async fn removing_name_also_rewrites_combined_labels() {
+        let pool = sqlx::SqlitePool::connect(":memory:").await.unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE people (id TEXT PRIMARY KEY); \
+             CREATE TABLE person_speakers (person_id TEXT NOT NULL, meeting_id TEXT NOT NULL, \
+                 speaker_label TEXT NOT NULL, UNIQUE(meeting_id, speaker_label)); \
+             CREATE TABLE transcripts (id TEXT PRIMARY KEY, meeting_id TEXT NOT NULL, speaker TEXT); \
+             INSERT INTO transcripts (id, meeting_id, speaker) VALUES \
+                 ('t1', 'm1', 'Alice'), ('t2', 'm1', 'You + Alice');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let removed = PeopleRepository::rename_meeting_speaker(&pool, "m1", "Alice", "")
+            .await
+            .unwrap();
+        assert!(removed.removed_name);
+        assert_eq!(removed.speaker, "Speaker 1");
+        assert_eq!(removed.count, 2);
+
+        let speakers: Vec<(String, String)> =
+            sqlx::query_as("SELECT id, speaker FROM transcripts WHERE meeting_id = 'm1' ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        let by_id: std::collections::HashMap<_, _> = speakers.into_iter().collect();
+        assert_eq!(by_id["t1"], "Speaker 1");
+        assert_eq!(by_id["t2"], "You + Speaker 1");
     }
 }
