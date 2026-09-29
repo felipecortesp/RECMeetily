@@ -173,6 +173,84 @@ pub fn diarize_file(
     diarize_file_with_models(wav_path, &model_dir, num_speakers, threshold)
 }
 
+/// Engine that produced a remote-track result (for logging).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Engine {
+    CommunityOne,
+    Legacy,
+}
+
+/// Run `primary` when present; on absence or error, run `fallback`.
+fn with_fallback<F, G>(primary: Option<F>, fallback: G) -> Result<(DiarizationResult, Engine)>
+where
+    F: FnOnce() -> Result<DiarizationResult>,
+    G: FnOnce() -> Result<DiarizationResult>,
+{
+    if let Some(primary) = primary {
+        match primary() {
+            Ok(result) => return Ok((result, Engine::CommunityOne)),
+            Err(e) => log::warn!("Community-1 diarization failed, using legacy engine: {e}"),
+        }
+    } else {
+        log::warn!("Community-1 models unavailable, using legacy engine");
+    }
+    fallback().map(|result| (result, Engine::Legacy))
+}
+
+fn distinct_speakers(segments: &[DiarizationSegment]) -> usize {
+    segments
+        .iter()
+        .map(|s| s.speaker)
+        .collect::<std::collections::HashSet<_>>()
+        .len()
+}
+
+/// Diarize the system (remote) track of a dual-track meeting, preferring the
+/// community-1 engine. `threshold` only applies to the legacy engine.
+fn diarize_remote_track(
+    system_wav: &Path,
+    remote_count: Option<usize>,
+    threshold: Option<f32>,
+) -> Result<DiarizationResult> {
+    let started = std::time::Instant::now();
+
+    #[cfg(target_os = "macos")]
+    let primary = fluid::usable_models_dir().map(|models_dir| {
+        move || -> Result<DiarizationResult> {
+            let (samples, sr) = dsp::read_wav(system_wav)?;
+            let samples = if sr != dsp::SAMPLE_RATE {
+                crate::audio::audio_processing::resample_audio(&samples, sr, dsp::SAMPLE_RATE)
+            } else {
+                samples
+            };
+            let count = fluid::SpeakerCount {
+                exact: remote_count,
+                min: None,
+                max: None,
+            };
+            let segments = fluid::diarize_samples(&samples, count, &models_dir)?;
+            Ok(DiarizationResult {
+                num_speakers: distinct_speakers(&segments),
+                duration: samples.len() as f32 / dsp::SAMPLE_RATE as f32,
+                segments,
+                user_speaker: None,
+            })
+        }
+    });
+    #[cfg(not(target_os = "macos"))]
+    let primary: Option<fn() -> Result<DiarizationResult>> = None;
+
+    let (result, engine) = with_fallback(primary, || {
+        diarize_file(system_wav, remote_count, threshold)
+    })?;
+    log::info!(
+        "Remote track diarized with {:?} in {:.1}s",
+        engine,
+        started.elapsed().as_secs_f32()
+    );
+    Ok(result)
+}
+
 /// Extract just the per-turn speaker embeddings for a recording.
 ///
 /// Exposed for offline evaluation of embedding quality (see the diagnostic in
@@ -766,7 +844,7 @@ pub async fn diarize_meeting(
                         user_speaker: None,
                     }
                     } else {
-                        diarize_file(&system_wav, remote_count, threshold)?
+                        diarize_remote_track(&system_wav, remote_count, threshold)?
                     };
                     if let Some(embeddings) = mic_embeddings {
                         let labels = clustering::agglomerative(
@@ -1086,6 +1164,47 @@ fn collect_turns(models: &mut DiarizationModels, samples: &[f32]) -> Result<Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn result(speakers: usize) -> DiarizationResult {
+        DiarizationResult {
+            segments: Vec::new(),
+            num_speakers: speakers,
+            duration: 1.0,
+            user_speaker: None,
+        }
+    }
+
+    #[test]
+    fn falls_back_when_primary_missing() {
+        let primary: Option<fn() -> Result<DiarizationResult>> = None;
+        let (r, engine) = with_fallback(primary, || Ok(result(2))).unwrap();
+        assert_eq!((engine, r.num_speakers), (Engine::Legacy, 2));
+    }
+
+    #[test]
+    fn falls_back_when_primary_errors() {
+        let (r, engine) =
+            with_fallback(Some(|| Err(anyhow!("boom"))), || Ok(result(3))).unwrap();
+        assert_eq!((engine, r.num_speakers), (Engine::Legacy, 3));
+    }
+
+    #[test]
+    fn uses_primary_when_ok() {
+        let (r, engine) = with_fallback(Some(|| Ok(result(1))), || Ok(result(9))).unwrap();
+        assert_eq!((engine, r.num_speakers), (Engine::CommunityOne, 1));
+    }
+
+    #[test]
+    fn counts_distinct_speakers() {
+        let seg = |speaker| DiarizationSegment {
+            start: 0.0,
+            end: 1.0,
+            speaker,
+            overlapped: false,
+        };
+        assert_eq!(distinct_speakers(&[seg(1), seg(3), seg(1)]), 2);
+        assert_eq!(distinct_speakers(&[]), 0);
+    }
 
     /// Headless evaluation of the diarization pipeline against a real
     /// recording. Skipped unless both env vars are set, e.g.:
