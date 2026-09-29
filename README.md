@@ -141,6 +141,8 @@ Built with open-source models and engines:
 - [Whisper](https://github.com/openai/whisper) and [whisper.cpp](https://github.com/ggerganov/whisper.cpp) by OpenAI and ggerganov.
 - [pyannote.audio](https://github.com/pyannote/pyannote-audio) for speaker segmentation.
 - [WeSpeaker](https://github.com/wenet-e2e/wespeaker) for speaker embeddings.
+- [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) (CC-BY-4.0) for macOS diarization, used as modified Core ML conversions by [Fluid Inference](https://huggingface.co/FluidInference/speaker-diarization-coreml) (CC-BY-4.0, changes: Core ML conversion, fixed input shapes, mixed-precision storage). PLDA parameters by BUT Speech@FIT. Please cite: Plaquet and Bredin, "Powerset multi-class cross entropy loss for neural speaker diarization", Interspeech 2023; Wang et al., "Wespeaker: A research and production oriented speaker embedding learning toolkit", ICASSP 2023; Landini et al., "Bayesian HMM clustering of x-vector sequences (VBx) in speaker diarization", Computer Speech & Language 2022. See [docs/diarization-models.md](docs/diarization-models.md).
+- [FluidAudio](https://github.com/FluidInference/FluidAudio) by Fluid Inference (Apache-2.0), vendored in `vendor/FluidAudio` with a small patch.
 - [llama.cpp](https://github.com/ggerganov/llama.cpp) by ggerganov.
 - [Qwen](https://github.com/QwenLM/Qwen) by Alibaba and [Gemma](https://github.com/google/gemma) by Google for summary models.
 - [Tauri](https://tauri.app) and [ONNX Runtime](https://onnxruntime.ai).

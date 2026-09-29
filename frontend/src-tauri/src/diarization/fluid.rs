@@ -8,7 +8,8 @@ use anyhow::{anyhow, bail, Context, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::ffi::{c_char, CString};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use super::DiarizationSegment;
 
@@ -36,6 +37,115 @@ pub const REQUIRED_FILES: &[&str] = &[
 
 pub fn models_present(dir: &Path) -> bool {
     REQUIRED_FILES.iter().all(|f| dir.join(f).exists())
+}
+
+/// Every model file with its exact size and SHA-256, pinned to Hugging Face
+/// `FluidInference/speaker-diarization-coreml` revision
+/// `df2625ac79a7ac6b65ad868fee6d80f320da4232` (see docs/diarization-models.md).
+const MODEL_FILES: &[(&str, u64, &str)] = &[
+    ("Embedding.mlmodelc/analytics/coremldata.bin", 243, "8d6706436639b53830b4dbe8aaf9c9a843f7f582d63e16f3cb8bb7c6ccd58682"),
+    ("Embedding.mlmodelc/coremldata.bin", 704, "4a705bac27d151d9642f37609296042a15602a42253039e0921dc9e75da7e004"),
+    ("Embedding.mlmodelc/metadata.json", 2818, "1854371eb6b438fb8aeac96afb45c999af7902581c06afdfcd7ff3cb1ce66be5"),
+    ("Embedding.mlmodelc/model.mil", 78432, "22fa958aef72a561c21f874a07cbdcd30fdf40ee961c0bc2fb67c119273b46d3"),
+    ("Embedding.mlmodelc/weights/weight.bin", 13412288, "99356b2985b8d43880a657024d941d450b38820451ccff903f76ed4e52d1868b"),
+    ("FBank.mlmodelc/analytics/coremldata.bin", 243, "0e8bd3a8b82ac123580989f490e4d9245127c535857630b543311268accc3f0a"),
+    ("FBank.mlmodelc/coremldata.bin", 853, "57ac436bb0671cbb5527a339134d695f752eb77f7a18966b93c6835335595759"),
+    ("FBank.mlmodelc/metadata.json", 3409, "2623785f5d186893b82d01e84aa33a7704ef763c3309e02055f22dc9d871ce9a"),
+    ("FBank.mlmodelc/model.mil", 15667, "27aaeb21569e81bdbe2eef87789f50a37cfea800039bd134448a9417de2f30ed"),
+    ("FBank.mlmodelc/weights/weight.bin", 1776896, "9e83fdd3ea78064b078069e4d9141603c61c47a27fd19e7e3142ff7476f8db36"),
+    ("PldaRho.mlmodelc/analytics/coremldata.bin", 243, "8940ea6044dbcbefa22da8cc41e0b485e1fb5ed89aecaf37c6e0c483a97ddcd7"),
+    ("PldaRho.mlmodelc/coremldata.bin", 763, "4d9741477f721c79b09fcdfe455110c4b7d4272e2de3496bf1729d966d3ee418"),
+    ("PldaRho.mlmodelc/metadata.json", 2749, "b314cf25a93e46b4076883a6f5a2f8848b73c3851bd9d36074d067f35a1c7945"),
+    ("PldaRho.mlmodelc/model.mil", 7613, "83aee2e5310d19b5f202aea97d07a0e12102556d1b32ef3ed08b36f7f9725041"),
+    ("PldaRho.mlmodelc/weights/weight.bin", 200192, "80f7d229202636d372428c90596f11a91545f07da77259f07153aaf225914a36"),
+    ("Segmentation.mlmodelc/analytics/coremldata.bin", 243, "64265f8e7ad41a5f68d630c15288c2499cca5892ad49e20096819cdeac004cdb"),
+    ("Segmentation.mlmodelc/coremldata.bin", 812, "ea51481b8bd3e496ad3cf16f066ddaa37f20e8772eaac76b3393c28de20e06bc"),
+    ("Segmentation.mlmodelc/metadata.json", 3410, "88dbf0b07208fe142e1729c2b4c974ad3599fcb2ae5d5f18fce782b225384124"),
+    ("Segmentation.mlmodelc/model.mil", 43063, "d37e4ce30b406a6b34f765f769b9baed3178cc0c2b2e299c641daa43a052dd3f"),
+    ("Segmentation.mlmodelc/weights/weight.bin", 5959360, "c3189a64946c75bc24fcb98afe89ad78c52bdbadfdf65e857fb1b81e2cc9fbb2"),
+    ("plda-parameters.json", 89416, "38ee28d4269c076cef254ee760bbd811f0738a92e0f01f9699ad372828c5de8f"),
+];
+
+/// Check that `dir` holds the pinned model files (size, then SHA-256).
+pub fn verify_models(dir: &Path) -> Result<()> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+
+    for (rel, size, sha) in MODEL_FILES {
+        let path = dir.join(rel);
+        let meta = std::fs::metadata(&path).with_context(|| format!("missing model file {rel}"))?;
+        if meta.len() != *size {
+            bail!("model file {rel} has size {}, expected {size}", meta.len());
+        }
+        let mut file = std::fs::File::open(&path).with_context(|| format!("open {rel}"))?;
+        let mut hasher = Sha256::new();
+        let mut buf = vec![0u8; 1024 * 1024];
+        loop {
+            let n = file.read(&mut buf).with_context(|| format!("read {rel}"))?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
+        let actual = format!("{:x}", hasher.finalize());
+        if actual != *sha {
+            bail!("model file {rel} failed SHA-256 verification");
+        }
+    }
+    Ok(())
+}
+
+static BUNDLED_COREML_DIR: OnceLock<PathBuf> = OnceLock::new();
+static VERDICTS: OnceLock<Mutex<HashMap<PathBuf, bool>>> = OnceLock::new();
+
+/// Record where the bundled Core ML models live (called during setup).
+pub fn set_bundled_coreml_dir(dir: PathBuf) {
+    let _ = BUNDLED_COREML_DIR.set(dir);
+}
+
+/// Verify `dir` once per process and cache the verdict.
+fn verified(dir: &Path) -> bool {
+    let cache = VERDICTS.get_or_init(Default::default);
+    if let Some(v) = cache.lock().unwrap().get(dir) {
+        return *v;
+    }
+    let verdict = match verify_models(dir) {
+        Ok(()) => true,
+        Err(e) => {
+            log::warn!("Core ML diarization models in {:?} unusable: {e}", dir);
+            false
+        }
+    };
+    cache.lock().unwrap().insert(dir.to_path_buf(), verdict);
+    verdict
+}
+
+/// Directory to load the Core ML models from: the user override
+/// (`<models>/diarization-coreml`) if it verifies, else the bundled copy if it
+/// verifies, else `None`.
+pub fn usable_models_dir() -> Option<PathBuf> {
+    let user = crate::paths::models_dir().join("diarization-coreml");
+    if user.exists() {
+        if verified(&user) {
+            log::info!("Using user Core ML diarization models");
+            return Some(user);
+        }
+        log::warn!("User Core ML diarization models failed verification; trying bundled copy");
+    }
+    match BUNDLED_COREML_DIR.get() {
+        Some(bundled) if verified(bundled) => {
+            log::info!("Using bundled Core ML diarization models");
+            Some(bundled.clone())
+        }
+        Some(_) => {
+            log::warn!("Bundled Core ML diarization models failed verification");
+            None
+        }
+        None => {
+            log::warn!("Bundled Core ML diarization models directory not set");
+            None
+        }
+    }
 }
 
 /// Speaker-count hints; `None` leaves the value to the clusterer.
@@ -135,6 +245,31 @@ fn parse_output(json: &str) -> Result<Vec<DiarizationSegment>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn verify_models_rejects_mismatched_file() {
+        let dir = tempfile::tempdir().unwrap();
+        for (rel, size, _) in MODEL_FILES {
+            let path = dir.path().join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, vec![0u8; *size as usize]).unwrap();
+        }
+        let err = verify_models(dir.path()).unwrap_err().to_string();
+        assert!(err.contains("SHA-256"), "{err}");
+    }
+
+    #[test]
+    fn verify_models_rejects_missing_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(verify_models(dir.path()).is_err());
+    }
+
+    #[test]
+    fn bundled_models_verify() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/diarization-coreml");
+        verify_models(&dir).unwrap();
+        assert!(models_present(&dir));
+    }
 
     #[test]
     fn parse_orders_and_maps_speakers() {

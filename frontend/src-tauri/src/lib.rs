@@ -541,6 +541,14 @@ pub fn run() {
                 let diarization_dir = resource_path.join("resources").join("diarization");
                 log::info!("Setting bundled diarization models directory to: {:?}", diarization_dir);
                 diarization::set_bundled_dir(diarization_dir);
+
+                // Core ML community-1 models (macOS only), verified before use.
+                #[cfg(target_os = "macos")]
+                {
+                    let coreml_dir = resource_path.join("resources").join("diarization-coreml");
+                    log::info!("Setting bundled Core ML diarization models directory to: {:?}", coreml_dir);
+                    diarization::fluid::set_bundled_coreml_dir(coreml_dir);
+                }
             } else {
                 log::warn!("Failed to resolve resource directory for templates");
             }
