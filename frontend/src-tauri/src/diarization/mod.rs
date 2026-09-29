@@ -18,6 +18,8 @@ pub mod assign;
 pub mod clustering;
 pub mod download;
 pub mod dsp;
+#[cfg(target_os = "macos")]
+pub mod fluid;
 pub mod models;
 pub mod online;
 pub mod split;
