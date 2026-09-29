@@ -1,0 +1,14 @@
+[package]
+name = "fluidaudio-bench"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+fluidaudio-rs = { version = "0.14", default-features = false, features = ["diarization"] }
+hound = "3"
+libc = "0.2"
+serde_json = "1"
+
+# Standalone: keep the repo-root workspace from picking this spike up.
+[workspace]
