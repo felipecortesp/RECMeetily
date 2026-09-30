@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0 - 2026-09-30
+
+### Added
+- Speaker identification for the remote participants now uses pyannote community-1 (segmentation, WeSpeaker embeddings, PLDA and VBx) through FluidAudio on the Neural Engine. On the tested meeting it separated two guests that the previous engine merged into one, and it runs about 3x faster. The previous engine remains as a fallback and for older meetings recorded without separate tracks. Models are bundled and verified by SHA-256; attribution in the README.
+- Transcript rows are split where the speaker changes, using word timings from Parakeet (applies after re-transcribing with Parakeet). Combined labels such as "You + Speaker 1" only appear for real simultaneous speech on the same track.
+- Participants panel in the transcript toolbar: every speaker with number of lines and talk time, **Rename** and **Go to first**.
+- Summary templates can be edited, duplicated, and built-in ones restored to their default after editing.
+- Recordings stop automatically after 15 minutes without speech (or 8 hours in total), after a warning with **Keep recording**. Configurable in Settings > Recording; paused time is not counted.
+
+### Fixed
+- Your own lines no longer turn into another participant's name when speakers are identified again, and names you gave are kept for the matching speaker.
+- Background speech from the other track no longer produces false "You + Speaker N" labels.
+
+### Changed
+- The database gains two transcript columns (word timings and source track). Earlier versions cannot open the database after 0.4.0 has run.
+
 ## 0.3.2 - 2026-09-28
 
 ### Fixed
