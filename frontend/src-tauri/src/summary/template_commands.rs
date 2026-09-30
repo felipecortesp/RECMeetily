@@ -16,6 +16,16 @@ pub struct TemplateInfo {
     pub description: String,
 }
 
+/// Template metadata plus where its effective version comes from
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TemplateInfoDetailed {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    /// "custom" | "builtin" | "overridden"
+    pub source: String,
+}
+
 /// Detailed template structure for preview/debugging
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TemplateDetails {
@@ -59,6 +69,48 @@ pub async fn api_list_templates<R: Runtime>(
     info!("Found {} available templates", template_infos.len());
 
     Ok(template_infos)
+}
+
+/// Lists all templates with their source ("custom", "builtin" or "overridden").
+#[tauri::command]
+pub async fn api_list_templates_detailed<R: Runtime>(
+    _app: tauri::AppHandle<R>,
+) -> Result<Vec<TemplateInfoDetailed>, String> {
+    Ok(templates::list_templates_detailed()
+        .into_iter()
+        .map(|(id, t, source)| TemplateInfoDetailed {
+            id,
+            name: t.name,
+            description: t.description,
+            source: match source {
+                templates::TemplateSource::Custom => "custom",
+                templates::TemplateSource::Builtin => "builtin",
+                templates::TemplateSource::Overridden => "overridden",
+            }
+            .to_string(),
+        })
+        .collect())
+}
+
+/// Returns the full template (all sections and fields), resolved with the same
+/// priority the summary generator uses.
+#[tauri::command]
+pub async fn api_get_template<R: Runtime>(
+    _app: tauri::AppHandle<R>,
+    template_id: String,
+) -> Result<templates::Template, String> {
+    templates::get_template(&template_id)
+}
+
+/// Removes the user override of a built-in template so the built-in applies again.
+/// Errors if the template is not currently overridden.
+#[tauri::command]
+pub async fn api_restore_template_default<R: Runtime>(
+    _app: tauri::AppHandle<R>,
+    template_id: String,
+) -> Result<(), String> {
+    info!("api_restore_template_default called for id: {}", template_id);
+    templates::restore_template_default(&template_id)
 }
 
 /// Gets detailed information about a specific template
