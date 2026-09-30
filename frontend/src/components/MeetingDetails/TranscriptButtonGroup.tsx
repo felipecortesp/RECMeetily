@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { ToolbarButton as Button } from './ToolbarButton';
 import { ButtonGroup } from '@/components/ui/button-group';
-import { Copy, Download, FolderOpen, RefreshCw, Users, Loader2 } from 'lucide-react';
+import { Copy, Download, FolderOpen, RefreshCw, Users, UsersRound, Loader2 } from 'lucide-react';
 import { RetranscribeDialog } from './RetranscribeDialog';
 import { useConfig } from '@/contexts/ConfigContext';
 import { invoke } from '@tauri-apps/api/core';
@@ -15,6 +15,7 @@ interface TranscriptButtonGroupProps {
   transcriptCount: number;
   onCopyTranscript: () => void;
   onOpenExport?: () => void;
+  onOpenParticipants?: () => void;
   onOpenMeetingFolder: () => Promise<void>;
   meetingId?: string;
   meetingFolderPath?: string | null;
@@ -26,6 +27,7 @@ export function TranscriptButtonGroup({
   transcriptCount,
   onCopyTranscript,
   onOpenExport,
+  onOpenParticipants,
   onOpenMeetingFolder,
   meetingId,
   meetingFolderPath,
@@ -147,6 +149,21 @@ export function TranscriptButtonGroup({
           <FolderOpen size={16} />
           <span className="transcript-action-label">Recording</span>
         </Button>
+
+        {onOpenParticipants && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="transcript-action-button h-9 w-9 shrink-0 px-0"
+            onClick={() => {
+              onOpenParticipants();
+            }}
+            title="Show meeting participants"
+          >
+            <UsersRound size={16} />
+            <span className="transcript-action-label">Participants</span>
+          </Button>
+        )}
 
         {diarizeAvailable && meetingId && (
           <Button

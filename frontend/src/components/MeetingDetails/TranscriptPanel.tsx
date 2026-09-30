@@ -14,12 +14,13 @@
  *   - otherwise  → converted inline from `transcripts` below
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Transcript, TranscriptSegmentData } from '@/types';
 import { Calendar, Clock } from 'lucide-react';
 import { SpeakerRenameDialog } from './SpeakerRenameDialog';
-import { VirtualizedTranscriptView } from '@/components/VirtualizedTranscriptView';
+import { VirtualizedTranscriptView, type VirtualizedTranscriptHandle } from '@/components/VirtualizedTranscriptView';
 import { TranscriptButtonGroup } from './TranscriptButtonGroup';
+import { ParticipantsPanel } from './ParticipantsPanel';
 
 interface TranscriptPanelProps {
   transcripts: Transcript[];
@@ -80,6 +81,8 @@ export function TranscriptPanel({
   onSpeakerRenamed,
 }: TranscriptPanelProps) {
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
+  const [participantsOpen, setParticipantsOpen] = useState(false);
+  const transcriptViewRef = useRef<VirtualizedTranscriptHandle>(null);
 
   const convertedSegments = useMemo(() => {
     if (usePagination && segments) return segments;
@@ -146,6 +149,7 @@ export function TranscriptPanel({
             transcriptCount={usePagination ? (totalCount ?? convertedSegments.length) : (transcripts?.length || 0)}
             onCopyTranscript={onCopyTranscript}
             onOpenExport={onOpenExport}
+            onOpenParticipants={() => setParticipantsOpen(true)}
             onOpenMeetingFolder={onOpenMeetingFolder}
             meetingId={meetingId}
             meetingFolderPath={meetingFolderPath}
@@ -165,9 +169,18 @@ export function TranscriptPanel({
         }}
       />
 
+      <ParticipantsPanel
+        open={participantsOpen}
+        onOpenChange={setParticipantsOpen}
+        segments={convertedSegments}
+        onRename={meetingId ? setRenameTarget : () => {}}
+        onGoToSegment={(id) => setTimeout(() => transcriptViewRef.current?.scrollToSegment(id), 50)}
+      />
+
       {/* Transcript content */}
       <div className="flex-1 overflow-hidden px-4 pb-4">
         <VirtualizedTranscriptView
+          handleRef={transcriptViewRef}
           onRenameSpeaker={meetingId ? setRenameTarget : undefined}
           segments={convertedSegments}
           isRecording={isRecording}
