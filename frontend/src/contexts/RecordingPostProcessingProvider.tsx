@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { useRecordingStop } from '@/hooks/useRecordingStop';
 import { toast } from 'sonner';
 
@@ -117,6 +118,50 @@ export function RecordingPostProcessingProvider({ children }: { children: React.
     return () => {
       disposed = true;
       unlistenFn?.();
+    };
+  }, []);
+
+  // Auto-stop: the backend warns 2 minutes before ending an idle / overlong
+  // recording. The toast stays until the user answers or the backend cancels it.
+  useEffect(() => {
+    const AUTO_STOP_TOAST_ID = 'recording-auto-stop-warning';
+    const unlisteners: Array<() => void> = [];
+    let disposed = false;
+
+    const register = (promise: Promise<() => void>) => {
+      promise.then((unlisten) => {
+        if (disposed) {
+          unlisten();
+        } else {
+          unlisteners.push(unlisten);
+        }
+      }).catch((error) => {
+        console.error('[RecordingPostProcessing] Failed to listen for auto-stop events:', error);
+      });
+    };
+
+    register(listen<{ reason: string; message: string }>('recording-auto-stop-warning', (event) => {
+      toast.warning('Recording will stop in 2 minutes', {
+        id: AUTO_STOP_TOAST_ID,
+        description: event.payload.message,
+        duration: Infinity,
+        action: {
+          label: 'Keep recording',
+          onClick: () => {
+            invoke('keep_recording_alive').catch((error) => {
+              console.error('[RecordingPostProcessing] keep_recording_alive failed:', error);
+              toast.error('Could not keep the recording going');
+            });
+          },
+        },
+      });
+    }));
+    register(listen('recording-auto-stop-cancelled', () => toast.dismiss(AUTO_STOP_TOAST_ID)));
+    register(listen('recording-stop-complete', () => toast.dismiss(AUTO_STOP_TOAST_ID)));
+
+    return () => {
+      disposed = true;
+      unlisteners.forEach((unlisten) => unlisten());
     };
   }, []);
 

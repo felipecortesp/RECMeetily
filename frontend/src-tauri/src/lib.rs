@@ -647,6 +647,7 @@ pub fn run() {
             is_audio_level_monitoring,
             // Recording pause/resume commands
             audio::recording_commands::pause_recording,
+            audio::auto_stop::keep_recording_alive,
             audio::recording_commands::resume_recording,
             audio::recording_commands::is_recording_paused,
             audio::recording_commands::set_microphone_muted,
@@ -736,6 +737,9 @@ pub fn run() {
             summary::template_commands::api_save_custom_template,
             summary::template_commands::api_delete_custom_template,
             summary::template_commands::api_is_custom_template,
+            summary::template_commands::api_list_templates_detailed,
+            summary::template_commands::api_get_template,
+            summary::template_commands::api_restore_template_default,
             live_assistant::ask_live_assistant,
             live_assistant::ask_person,
             live_assistant::ollama_embed,

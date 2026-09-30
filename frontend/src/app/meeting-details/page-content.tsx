@@ -313,6 +313,8 @@ export default function PageContent({
         availableTemplates={templates.availableTemplates}
         onSave={templates.saveCustomTemplate}
         onDelete={templates.deleteCustomTemplate}
+        onRestore={templates.restoreTemplateDefault}
+        onLoadTemplate={templates.getTemplate}
       />
       <MeetingExportDialog
         open={exportOpen}

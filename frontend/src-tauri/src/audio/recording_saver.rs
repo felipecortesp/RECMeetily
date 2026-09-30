@@ -49,6 +49,9 @@ pub struct MeetingMetadata {
     pub transcript_file: String,
     pub sample_rate: u32,
     pub status: String,  // "recording", "completed", "error"
+    /// Set only when the app ended the recording itself ("inactivity", "max_duration").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,6 +97,12 @@ impl RecordingSaver {
     }
 
     /// Set the meeting name for this recording session
+    pub fn set_stop_reason(&mut self, reason: Option<String>) {
+        if let Some(metadata) = self.metadata.as_mut() {
+            metadata.stop_reason = reason;
+        }
+    }
+
     pub fn set_meeting_name(&mut self, name: Option<String>) {
         self.meeting_name = name;
     }
@@ -294,6 +303,7 @@ impl RecordingSaver {
             transcript_file: "transcripts.json".to_string(),
             sample_rate: 48000,
             status: "recording".to_string(),
+            stop_reason: None,
         };
 
         // Write initial metadata.json

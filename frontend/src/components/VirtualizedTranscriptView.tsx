@@ -24,7 +24,7 @@
  * Dropping it in any one of them silently hides speakers on that screen.
  */
 
-import { useCallback, useRef, useReducer, startTransition, useEffect, useState, useMemo, memo } from "react";
+import { useCallback, useImperativeHandle, useRef, useReducer, startTransition, useEffect, useState, useMemo, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useAutoScroll } from "@/hooks/useAutoScroll";
 import { useTranscriptStreaming } from "@/hooks/useTranscriptStreaming";
@@ -65,6 +65,14 @@ export interface VirtualizedTranscriptViewProps {
      * yet, so renaming is only offered on saved meetings.
      */
     onRenameSpeaker?: (speaker: string) => void;
+
+    /** Receives an imperative handle so a parent (e.g. Participants panel) can jump to a segment. */
+    handleRef?: React.Ref<VirtualizedTranscriptHandle>;
+}
+
+export interface VirtualizedTranscriptHandle {
+    /** Scroll to the segment (or the merged bubble containing it) and briefly highlight it. */
+    scrollToSegment: (id: string) => void;
 }
 
 // Threshold for enabling virtualization (below this, use simple rendering)
@@ -161,7 +169,7 @@ function mergeAdjacentSameSpeaker(
 }
 
 /** Dot colour on the timeline rail — same mapping as the text colour. */
-function speakerDot(speaker?: string): string {
+export function speakerDot(speaker?: string): string {
     if (!speaker) return 'bg-gray-600';
     if (isUserSpeaker(speaker)) return 'bg-blue-500';
     if (/^guest\b/i.test(speaker)) return 'bg-purple-500';
@@ -169,7 +177,7 @@ function speakerDot(speaker?: string): string {
 }
 
 /** Stable colour per speaker label so each speaker reads consistently. */
-function speakerColor(speaker: string): string {
+export function speakerColor(speaker: string): string {
     if (isUserSpeaker(speaker)) return 'text-blue-500';
     if (/^guest\b/i.test(speaker)) return 'text-purple-500';
     return speakerTextPalette[speakerPaletteIndex(speaker)];
@@ -185,7 +193,9 @@ const TranscriptSegment = memo(function TranscriptSegment({
     speaker,
     userName,
     onRenameSpeaker,
+    highlighted = false,
 }: {
+    highlighted?: boolean;
     id: string;
     timestamp: number;
     text: string;
@@ -208,7 +218,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
     return (
         <div
             id={`segment-${id}`}
-            className={`relative flex pb-4 ${isYou ? 'justify-end pl-10' : 'justify-start pr-10'}`}
+            className={`relative flex pb-4 transition-colors duration-500 ${highlighted ? 'rounded-lg bg-blue-500/15 ' : ''}${isYou ? 'justify-end pl-10' : 'justify-start pr-10'}`}
         >
             <div className={`max-w-[85%] min-w-0 flex flex-col gap-1 ${isYou ? 'items-end' : 'items-start'}`}>
                 <div className={`flex items-baseline gap-2 ${isYou ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -282,6 +292,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
     onLoadMore,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     onRenameSpeaker,
+    handleRef,
 }) => {
     // Greet the user by name when they've set one (Settings → General → Your
     // Name). Read on mount rather than at module scope so it picks up changes
@@ -298,6 +309,10 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
         () => mergeAdjacentSameSpeaker(segments),
         [segments],
     );
+
+    const [highlightedId, setHighlightedId] = useState<string | null>(null);
+    const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => () => { if (highlightTimer.current) clearTimeout(highlightTimer.current); }, []);
 
     // Create scroll ref first - shared between virtualizer and auto-scroll hook
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -319,6 +334,22 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
             });
         },
     });
+
+    useImperativeHandle(handleRef, () => ({
+        scrollToSegment: (id: string) => {
+            const index = displaySegments.findIndex((s) => s.id === id);
+            if (index < 0) return;
+            const targetId = displaySegments[index].id;
+            if (displaySegments.length >= VIRTUALIZATION_THRESHOLD) {
+                virtualizer.scrollToIndex(index, { align: 'center' });
+            } else {
+                document.getElementById(`segment-${targetId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            }
+            setHighlightedId(targetId);
+            if (highlightTimer.current) clearTimeout(highlightTimer.current);
+            highlightTimer.current = setTimeout(() => setHighlightedId(null), 1800);
+        },
+    }), [displaySegments, virtualizer]);
 
     // Custom hook for auto-scrolling (supports both virtualized and non-virtualized)
     useAutoScroll({
@@ -470,6 +501,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         speaker={segment.speaker}
                                         userName={userName}
                                         onRenameSpeaker={onRenameSpeaker}
+                                        highlighted={highlightedId === segment.id}
                                     />
                                 </div>
                             );
@@ -532,6 +564,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         speaker={segment.speaker}
                                         userName={userName}
                                         onRenameSpeaker={onRenameSpeaker}
+                                        highlighted={highlightedId === segment.id}
                                     />
                                 </motion.div>
                             );

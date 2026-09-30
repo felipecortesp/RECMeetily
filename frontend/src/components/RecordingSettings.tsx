@@ -16,6 +16,12 @@ export interface RecordingPreferences {
   mic_gain?: number;
   /** System-audio gain before metering, transcription, and recording (0.5–3.0). */
   system_gain?: number;
+  /** Stop forgotten recordings automatically after a warning. */
+  auto_stop_enabled?: boolean;
+  /** Minutes without transcribed speech before the warning (5–60). */
+  auto_stop_idle_minutes?: number;
+  /** Maximum recording length in hours (2–12, 0 = no cap). */
+  auto_stop_max_hours?: number;
 }
 
 interface RecordingSettingsProps {
@@ -32,6 +38,9 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
     preferred_system_device: null,
     mic_gain: 1.0,
     system_gain: 1.0,
+    auto_stop_enabled: true,
+    auto_stop_idle_minutes: 15,
+    auto_stop_max_hours: 8,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -85,6 +94,12 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
   const handleMicGainChange = async (value: number) => {
     const mic_gain = Math.min(3, Math.max(0.5, value));
     const newPreferences = { ...preferences, mic_gain };
+    setPreferences(newPreferences);
+    await savePreferences(newPreferences);
+  };
+
+  const handleAutoStopChange = async (changes: Partial<RecordingPreferences>) => {
+    const newPreferences = { ...preferences, ...changes };
     setPreferences(newPreferences);
     await savePreferences(newPreferences);
   };
@@ -297,6 +312,58 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
         </div>
         <p className="text-xs text-amber-700">
           If boosted audio repeatedly hits the safety limiter, the live system meter warns you to lower this gain or playback volume.
+        </p>
+      </div>
+
+      {/* Auto-stop — finalize forgotten recordings */}
+      <div className="min-w-0 space-y-3 rounded-lg border p-4">
+        <div className="flex min-w-0 items-start justify-between gap-3 sm:items-center">
+          <div className="min-w-0 flex-1">
+            <div className="font-medium">Stop forgotten recordings</div>
+            <div className="text-sm text-gray-600">
+              Warn, then stop the recording automatically when nobody speaks for a while
+            </div>
+          </div>
+          <Switch
+            checked={preferences.auto_stop_enabled ?? true}
+            onCheckedChange={(enabled) => void handleAutoStopChange({ auto_stop_enabled: enabled })}
+            disabled={saving}
+            className="shrink-0"
+          />
+        </div>
+        {(preferences.auto_stop_enabled ?? true) && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-sm text-gray-700">
+              <span className="mb-1 block">No speech for (minutes)</span>
+              <input
+                type="number"
+                min={5}
+                max={60}
+                value={preferences.auto_stop_idle_minutes ?? 15}
+                onChange={(e) => setPreferences((p) => ({ ...p, auto_stop_idle_minutes: parseInt(e.target.value, 10) || 15 }))}
+                onBlur={(e) => void handleAutoStopChange({ auto_stop_idle_minutes: Math.min(60, Math.max(5, parseInt(e.target.value, 10) || 15)) })}
+                className="w-full rounded-md border border-gray-300 px-2 py-1"
+              />
+            </label>
+            <label className="text-sm text-gray-700">
+              <span className="mb-1 block">Maximum length (hours, 0 = no limit)</span>
+              <input
+                type="number"
+                min={0}
+                max={12}
+                value={preferences.auto_stop_max_hours ?? 8}
+                onChange={(e) => setPreferences((p) => ({ ...p, auto_stop_max_hours: parseInt(e.target.value, 10) || 0 }))}
+                onBlur={(e) => {
+                  const v = parseInt(e.target.value, 10) || 0;
+                  void handleAutoStopChange({ auto_stop_max_hours: v === 0 ? 0 : Math.min(12, Math.max(2, v)) });
+                }}
+                className="w-full rounded-md border border-gray-300 px-2 py-1"
+              />
+            </label>
+          </div>
+        )}
+        <p className="text-xs text-gray-500">
+          You get a warning 2 minutes before the recording stops and can choose Keep recording. Background noise does not count as speech.
         </p>
       </div>
 
