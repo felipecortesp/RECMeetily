@@ -74,6 +74,15 @@ static TRANSCRIPTION_TASK: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 // Listener ID for proper cleanup - prevents microphone from staying active after recording stops
 static TRANSCRIPT_LISTENER_ID: Mutex<Option<tauri::EventId>> = Mutex::new(None);
 
+/// True while the active recording is paused (used by the auto-stop watchdog).
+pub(crate) fn is_paused_now() -> bool {
+    RECORDING_MANAGER
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|m| m.is_paused()))
+        .unwrap_or(false)
+}
+
 /// Create the live audio-level channel and spawn a task that forwards each
 /// per-source level sample (mic + system) to the frontend as a
 /// `recording-audio-levels` event. The returned sender is handed to the audio
@@ -346,6 +355,7 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     // Set recording flag and reset speech detection flag
     info!("ðŸ” Setting IS_RECORDING to true and resetting SPEECH_DETECTED_EMITTED");
     IS_RECORDING.store(true, Ordering::SeqCst);
+    super::auto_stop::spawn_watchdog(app.clone());
 
     // Live speaker identification: label transcript segments with individual
     // voices as they arrive. Best-effort — if the models aren't installed we
@@ -376,6 +386,7 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
         let listener_id = app.listen("transcript-update", move |event: tauri::Event| {
             // Parse the transcript update from the event payload
             if let Ok(update) = serde_json::from_str::<TranscriptUpdate>(event.payload()) {
+                super::auto_stop::note_transcript_text(&update.text);
                 // Create structured transcript segment
                 let segment = crate::audio::recording_saver::TranscriptSegment {
                     id: format!("seg_{}", update.sequence_id),
@@ -577,6 +588,7 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     // Set recording flag and reset speech detection flag
     info!("ðŸ” Setting IS_RECORDING to true and resetting SPEECH_DETECTED_EMITTED");
     IS_RECORDING.store(true, Ordering::SeqCst);
+    super::auto_stop::spawn_watchdog(app.clone());
 
     // Live speaker identification: label transcript segments with individual
     // voices as they arrive. Best-effort — if the models aren't installed we
@@ -607,6 +619,7 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
         let listener_id = app.listen("transcript-update", move |event: tauri::Event| {
             // Parse the transcript update from the event payload
             if let Ok(update) = serde_json::from_str::<TranscriptUpdate>(event.payload()) {
+                super::auto_stop::note_transcript_text(&update.text);
                 // Create structured transcript segment
                 let segment = crate::audio::recording_saver::TranscriptSegment {
                     id: format!("seg_{}", update.sequence_id),
@@ -708,6 +721,7 @@ async fn stop_recording_inner<R: Runtime>(
         return Ok(StopOutcome::AlreadyStopping);
     }
     let _stop_guard = StopGuard;
+    super::auto_stop::stop_watchdog();
 
     // Rust owns teardown. This is independent of webview event delivery and is
     // serialized against duplicate/queued minimize callbacks.
@@ -938,6 +952,8 @@ async fn stop_recording_inner<R: Runtime>(
         // Extract meeting info BEFORE async operations
         let meeting_folder = manager.get_meeting_folder();
         let meeting_name = manager.get_meeting_name();
+
+        manager.set_stop_reason(super::auto_stop::take_stop_reason().map(str::to_string));
 
         let audio_save_error = match tokio::time::timeout(
             tokio::time::Duration::from_secs(300), // 5 minutes max for file I/O

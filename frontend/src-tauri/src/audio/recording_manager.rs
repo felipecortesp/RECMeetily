@@ -395,6 +395,11 @@ impl RecordingManager {
     }
 
     /// Set the meeting name for this recording session
+    /// Record why the recording ended (e.g. "inactivity") in metadata.json.
+    pub fn set_stop_reason(&mut self, reason: Option<String>) {
+        self.recording_saver.set_stop_reason(reason);
+    }
+
     pub fn set_meeting_name(&mut self, name: Option<String>) {
         self.recording_saver.set_meeting_name(name);
     }

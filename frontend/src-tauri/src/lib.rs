@@ -647,6 +647,7 @@ pub fn run() {
             is_audio_level_monitoring,
             // Recording pause/resume commands
             audio::recording_commands::pause_recording,
+            audio::auto_stop::keep_recording_alive,
             audio::recording_commands::resume_recording,
             audio::recording_commands::is_recording_paused,
             audio::recording_commands::set_microphone_muted,

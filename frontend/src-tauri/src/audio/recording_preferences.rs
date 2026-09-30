@@ -70,6 +70,41 @@ pub struct RecordingPreferences {
     pub system_gain: f32,
     #[serde(default)]
     pub system_audio_backend: Option<String>,
+    /// Stop a forgotten recording automatically (see `audio::auto_stop`).
+    #[serde(default = "default_auto_stop_enabled")]
+    pub auto_stop_enabled: bool,
+    /// Minutes without transcribed speech before the auto-stop warning (5-60).
+    #[serde(default = "default_auto_stop_idle_minutes")]
+    pub auto_stop_idle_minutes: u32,
+    /// Maximum recording length in hours (2-12, 0 = no cap).
+    #[serde(default = "default_auto_stop_max_hours")]
+    pub auto_stop_max_hours: u32,
+}
+
+fn default_auto_stop_enabled() -> bool {
+    true
+}
+
+fn default_auto_stop_idle_minutes() -> u32 {
+    crate::audio::auto_stop::DEFAULT_IDLE_MINUTES
+}
+
+fn default_auto_stop_max_hours() -> u32 {
+    crate::audio::auto_stop::DEFAULT_MAX_HOURS
+}
+
+impl RecordingPreferences {
+    /// Clamp auto-stop limits to their allowed ranges and publish them to the watchdog.
+    fn apply_auto_stop(&mut self) {
+        self.auto_stop_idle_minutes =
+            crate::audio::auto_stop::clamp_idle_minutes(self.auto_stop_idle_minutes);
+        self.auto_stop_max_hours = crate::audio::auto_stop::clamp_max_hours(self.auto_stop_max_hours);
+        crate::audio::auto_stop::set_runtime_settings(crate::audio::auto_stop::AutoStopSettings {
+            enabled: self.auto_stop_enabled,
+            idle_minutes: self.auto_stop_idle_minutes,
+            max_hours: self.auto_stop_max_hours,
+        });
+    }
 }
 
 fn default_mic_gain() -> f32 {
@@ -91,6 +126,9 @@ impl Default for RecordingPreferences {
             mic_gain: 1.0,
             system_gain: 1.0,
             system_audio_backend: Some("coreaudio".to_string()),
+            auto_stop_enabled: true,
+            auto_stop_idle_minutes: default_auto_stop_idle_minutes(),
+            auto_stop_max_hours: default_auto_stop_max_hours(),
         }
     }
 }
@@ -284,6 +322,8 @@ pub async fn load_recording_preferences<R: Runtime>(
         prefs
     };
 
+    let mut prefs = prefs;
+    prefs.apply_auto_stop();
     set_mic_gain_runtime(prefs.mic_gain);
     set_system_gain_runtime(prefs.system_gain);
     info!("Loaded recording preferences: save_folder={:?}, auto_save={}, format={}, mic={:?}, system={:?}, mic_gain={:.2}, system_gain={:.2}",
@@ -301,6 +341,7 @@ pub async fn save_recording_preferences<R: Runtime>(
     let mut preferences = preferences.clone();
     preferences.mic_gain = preferences.mic_gain.clamp(0.5, 3.0);
     preferences.system_gain = preferences.system_gain.clamp(0.5, 3.0);
+    preferences.apply_auto_stop();
     // Validate first so a bad custom path is never persisted and reused on the
     // next recording startup.
     ensure_recordings_directory(&preferences.save_folder)?;
