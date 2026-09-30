@@ -6,7 +6,8 @@
         "createUpdaterArtifacts": false,
         "resources": [
             "templates/*.json",
-            "resources/diarization/*"
+            "resources/diarization/*",
+            "resources/diarization-coreml/**/*"
         ],
         "macOS": {
             "entitlements": "entitlements.plist",

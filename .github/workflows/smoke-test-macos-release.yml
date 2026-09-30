@@ -216,6 +216,9 @@ jobs:
           test -f "$APP_PATH/Contents/Resources/resources/diarization/segmentation-3.0-fp16.onnx"
           test -f "$APP_PATH/Contents/Resources/resources/diarization/wespeaker-resnet34-LM.onnx"
           test -f "$APP_PATH/Contents/Resources/resources/diarization/xvec_transform.npz"
+          test -f "$APP_PATH/Contents/Resources/resources/diarization-coreml/Embedding.mlmodelc/weights/weight.bin"
+          test -f "$APP_PATH/Contents/Resources/resources/diarization-coreml/Segmentation.mlmodelc/model.mil"
+          test -f "$APP_PATH/Contents/Resources/resources/diarization-coreml/plda-parameters.json"
 
           codesign --verify --deep --strict --verbose=2 "$APP_PATH" 2>&1 \
             | tee -a "$RUNNER_TEMP/meetily-metadata.log"

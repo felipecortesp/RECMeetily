@@ -1,7 +1,7 @@
 //! Plans and persists per-row speaker labels (and row splits) from an offline
 //! diarization result. Planning is pure; only `apply_plans` touches the DB.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use sqlx::SqliteConnection;
@@ -162,8 +162,6 @@ pub fn plan_rows(
         })
         .collect();
 
-    // Each cluster inherits the custom name that covers most of its seconds,
-    // unless "You" rows (Vote::Keep) cover at least as many.
     let mut votes: HashMap<usize, BTreeMap<Vote, f64>> = HashMap::new();
     for p in &prepared {
         let (Some(cluster), Some((s, e))) = (p.dominant, p.times) else { continue };
@@ -181,23 +179,31 @@ pub fn plan_rows(
         };
         *votes.entry(cluster).or_default().entry(vote).or_default() += e - s;
     }
-    let inherited: HashMap<usize, String> = votes
+
+    // Names (and Keep) map to clusters one-to-one, so a stale label that lumped
+    // several people together cannot be inherited by every new cluster. Greedy by
+    // seconds; ties go to the lower cluster id, then Keep before names, so a name
+    // must strictly beat Keep on a cluster to win it.
+    let mut triples: Vec<(usize, Vote, f64)> = votes
         .into_iter()
-        .filter_map(|(cluster, names)| {
-            // BTreeMap iterates Keep first, then names ascending, so strict `>`
-            // keeps Keep (then the smaller name) on ties.
-            let mut best: Option<(Vote, f64)> = None;
-            for (vote, secs) in names {
-                if best.as_ref().map_or(true, |(_, b)| secs > *b) {
-                    best = Some((vote, secs));
-                }
-            }
-            match best {
-                Some((Vote::Name(name), _)) => Some((cluster, name)),
-                _ => None,
-            }
-        })
+        .flat_map(|(cluster, v)| v.into_iter().map(move |(vote, secs)| (cluster, vote, secs)))
         .collect();
+    triples.sort_by(|a, b| {
+        b.2.total_cmp(&a.2).then_with(|| a.0.cmp(&b.0)).then_with(|| a.1.cmp(&b.1))
+    });
+    let mut inherited: HashMap<usize, String> = HashMap::new();
+    let mut decided: HashSet<usize> = HashSet::new();
+    let mut used_votes: Vec<Vote> = Vec::new();
+    for (cluster, vote, _) in triples {
+        if decided.contains(&cluster) || used_votes.contains(&vote) {
+            continue;
+        }
+        decided.insert(cluster);
+        if let Vote::Name(name) = &vote {
+            inherited.insert(cluster, name.clone());
+        }
+        used_votes.push(vote);
+    }
 
     let speaker_label = |spk: usize| -> String {
         if let Some(name) = inherited.get(&spk) {
@@ -206,7 +212,9 @@ pub fn plan_rows(
         if Some(spk) == user_speaker {
             return "You".to_string();
         }
-        // Keep remote numbering compact when the user owns a cluster.
+        // Keep remote numbering compact when the user owns a cluster. Clusters
+        // that inherited a name leave gaps ("Speaker 2" may follow no "Speaker 1");
+        // numbers are deliberately not renumbered so they stay stable per cluster.
         let display = match user_speaker {
             Some(user) if spk > user => spk,
             _ => spk + 1,
@@ -217,7 +225,7 @@ pub fn plan_rows(
     prepared
         .into_iter()
         .map(|p| {
-            let Prepared { row, track, times, turns: row_turns, own_name, dominant, .. } = p;
+            let Prepared { row, track, times, turns: row_turns, own_name, .. } = p;
             let existing = row.speaker.as_deref().map(str::trim).filter(|l| !l.is_empty());
             let named = existing.map_or(false, is_named);
             let Some((start, end)) = times else {
@@ -251,11 +259,7 @@ pub fn plan_rows(
                 let mut labels: Vec<String> = piece
                     .speakers
                     .iter()
-                    .enumerate()
-                    .map(|(i, &spk)| match (&own_name, dominant) {
-                        (Some(name), Some(d)) if i == 0 && spk == d => name.clone(),
-                        _ => speaker_label(spk),
-                    })
+                    .map(|&spk| speaker_label(spk))
                     .collect();
                 if let Some(pos) = labels.iter().position(|l| l.eq_ignore_ascii_case("you")) {
                     let you = labels.remove(pos);
@@ -271,8 +275,7 @@ pub fn plan_rows(
                 Some(seen.join(" + "))
             };
 
-            // Merge neighbours that ended up with the same label (two clusters
-            // can inherit one name).
+            // Merge neighbours that ended up with the same label.
             let mut merged: Vec<(Piece, Option<String>)> = Vec::new();
             for piece in pieces {
                 let label = label_of(&piece);
@@ -527,8 +530,8 @@ mod tests {
     }
 
     #[test]
-    fn named_row_with_two_speakers_keeps_own_name_on_dominant_piece() {
-        // Cluster 1 -> Matheus (dominant of row "a"), cluster 2 unnamed.
+    fn named_row_with_two_speakers_is_labeled_by_clusters() {
+        // Cluster 1 -> Matheus (by vote), cluster 2 unnamed.
         let turns = [turn(0.0, 6.0, 1), turn(6.0, 8.0, 2), turn(8.0, 30.0, 3)];
         let mut r = row("a", 0.0, 8.0, Some("Matheus"), Some("system"));
         r.words = Some(words(0.0, 8));
@@ -549,24 +552,86 @@ mod tests {
     }
 
     #[test]
-    fn adjacent_pieces_with_same_label_merge() {
-        // Two clusters both inherit "Matheus".
-        let turns = [turn(0.0, 4.0, 1), turn(4.0, 8.0, 2)];
-        let mut a = row("a", 0.0, 8.0, Some("Matheus"), Some("system"));
-        a.words = Some(words(0.0, 8));
+    fn one_name_is_not_shared_by_two_clusters() {
+        // Both clusters have only "Matheus" rows; the larger cluster gets the name.
+        let turns = [turn(0.0, 4.0, 1), turn(4.0, 12.0, 2)];
+        let mut a = row("a", 0.0, 12.0, Some("Matheus"), Some("system"));
+        a.words = Some(words(0.0, 12));
         let plans = plan_rows(
             vec![
                 a,
                 row("b", 0.0, 4.0, Some("Matheus"), Some("system")),
-                row("c", 4.0, 8.0, Some("Matheus"), Some("system")),
+                row("c", 4.0, 12.0, Some("Matheus"), Some("system")),
             ],
             &turns,
             Some(0),
             true,
             true,
         );
-        assert!(matches!(plans[0], RowPlan::Speaker { .. }));
-        assert_eq!(speaker_of(&plans[0]).as_deref(), Some("Matheus"));
+        let RowPlan::Split { pieces, .. } = &plans[0] else {
+            panic!("expected split: {:?}", plans[0]);
+        };
+        assert_eq!(pieces[0].label.as_deref(), Some("Speaker 1"));
+        assert_eq!(pieces[1].label.as_deref(), Some("Matheus"));
+        assert_eq!(speaker_of(&plans[1]).as_deref(), Some("Speaker 1"));
+        assert_eq!(speaker_of(&plans[2]).as_deref(), Some("Matheus"));
+    }
+
+    #[test]
+    fn stale_single_name_goes_to_one_cluster() {
+        // A bad diarization lumped two remote people; every system row was named
+        // "Johonnatan". Cluster 1 has more seconds, so only it keeps the name.
+        let turns = [turn(0.0, 20.0, 1), turn(20.0, 30.0, 2), turn(30.0, 40.0, 0)];
+        let mut mixed = row("mixed", 16.0, 24.0, Some("Johonnatan"), Some("system"));
+        mixed.words = Some(words(16.0, 8));
+        let plans = plan_rows(
+            vec![
+                row("a", 0.0, 10.0, Some("Johonnatan"), Some("system")),
+                row("b", 10.0, 20.0, Some("Johonnatan"), Some("system")),
+                row("c", 20.0, 30.0, Some("Johonnatan"), Some("system")),
+                mixed,
+                row("me", 30.0, 40.0, Some("You"), Some("mic")),
+            ],
+            &turns,
+            Some(0),
+            true,
+            true,
+        );
+        assert_eq!(speaker_of(&plans[0]).as_deref(), Some("Johonnatan"));
+        assert_eq!(speaker_of(&plans[1]).as_deref(), Some("Johonnatan"));
+        assert_eq!(speaker_of(&plans[2]).as_deref(), Some("Speaker 2"));
+        let RowPlan::Split { pieces, .. } = &plans[3] else {
+            panic!("expected split: {:?}", plans[3]);
+        };
+        assert_eq!(pieces.len(), 2);
+        assert_eq!(pieces[0].label.as_deref(), Some("Johonnatan"));
+        assert_eq!(pieces[1].label.as_deref(), Some("Speaker 2"));
+        assert_eq!(pieces[0].words.as_ref().unwrap().len(), 4);
+        assert_eq!(pieces[1].words.as_ref().unwrap().len(), 4);
+        assert_eq!(speaker_of(&plans[4]).as_deref(), Some("You"));
+    }
+
+    #[test]
+    fn two_names_map_one_to_one() {
+        // A dominates cluster 1, B dominates cluster 2, but some A rows sit on
+        // cluster 2; the one-to-one assignment still yields 1 = A, 2 = B.
+        let turns = [turn(0.0, 20.0, 1), turn(20.0, 36.0, 2)];
+        let plans = plan_rows(
+            vec![
+                row("a1", 0.0, 10.0, Some("A"), Some("system")),
+                row("a2", 10.0, 20.0, Some("A"), Some("system")),
+                row("a3", 20.0, 24.0, Some("A"), Some("system")),
+                row("b1", 24.0, 36.0, Some("B"), Some("system")),
+            ],
+            &turns,
+            Some(0),
+            true,
+            true,
+        );
+        assert_eq!(speaker_of(&plans[0]).as_deref(), Some("A"));
+        assert_eq!(speaker_of(&plans[1]).as_deref(), Some("A"));
+        assert_eq!(speaker_of(&plans[2]).as_deref(), Some("B"));
+        assert_eq!(speaker_of(&plans[3]).as_deref(), Some("B"));
     }
 
     #[test]
